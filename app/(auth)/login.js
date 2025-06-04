@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Alert, Button, StyleSheet, Text, TextInput, View } from "react-native";
-import { login } from "../services/api"; // Sửa từ "../../services/api"
+import { login } from "../services/api";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -16,7 +16,7 @@ export default function LoginScreen() {
       await AsyncStorage.setItem("token", token);
       await AsyncStorage.setItem("user", JSON.stringify(user));
       Alert.alert("Thành công", `Chào ${user.email}`, [
-        { text: "OK", onPress: () => router.push("/(tabs)/blogs") },
+        { text: "OK", onPress: () => router.push("/(tabs)/users/profile") },
       ]);
     } catch (err) {
       console.log("Lỗi đăng nhập:", err);

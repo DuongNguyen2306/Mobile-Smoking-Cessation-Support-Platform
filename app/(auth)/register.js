@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Alert, Button, StyleSheet, Text, TextInput, View } from "react-native";
-import { register } from "../services/api"; // Sửa từ "../../services/api"
+import { register } from "../services/api";
 
 export default function RegisterScreen() {
   const router = useRouter();

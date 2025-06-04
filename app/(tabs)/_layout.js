@@ -45,6 +45,15 @@ export default function TabLayout() {
         name="chat"
         options={{ title: "Chat", tabBarIcon: () => null }}
       />
+      <Tabs.Screen
+        name="[id]"
+        options={{ href: null }}
+        listeners={({ navigation }) => ({
+          tabPress: (e) => {
+            e.preventDefault();
+          },
+        })}
+      />
     </Tabs>
   );
 }

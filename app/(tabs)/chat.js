@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from "react-native";
-import { fetchConversations, fetchUsers } from "../../services/api";
+import { fetchConversations, fetchUsers } from "../services/api";
 
 export default function ChatScreen() {
   const router = useRouter();
