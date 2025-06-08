@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { getMyFollowers, getMyFollowing, getProfile, logout } from "../services/api";
+import { getFollowers, getFollowing, getProfile, logout } from "../services/api"; // Cập nhật import
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -31,7 +31,6 @@ export default function ProfileScreen() {
           return;
         }
 
-        // Gọi API getProfile
         const response = await getProfile();
         if (response.status === 200) {
           setUser(response.data.data.user);
@@ -39,17 +38,16 @@ export default function ProfileScreen() {
           throw new Error("Không thể lấy thông tin profile");
         }
 
-        // Gọi API lấy số lượng followers và following (tách biệt để không ảnh hưởng đến profile)
-        try {
-          const followersRes = await getMyFollowers();
-          const followingRes = await getMyFollowing();
-          setFollowersCount(followersRes.data?.data?.length || 0);
-          setFollowingCount(followingRes.data?.data?.length || 0);
-        } catch (followErr) {
-          console.error("Lỗi lấy số lượng followers/following:", followErr);
-          setFollowersCount(0);
-          setFollowingCount(0);
+        const storedUser = await AsyncStorage.getItem("user");
+        const parsedUser = JSON.parse(storedUser);
+        if (!parsedUser?.id) {
+          throw new Error("Không tìm thấy userId");
         }
+
+        const followersRes = await getFollowers(parsedUser.id, { page: 1, limit: 100 }); // Lấy số lượng lớn để đếm
+        const followingRes = await getFollowing(parsedUser.id, { page: 1, limit: 100 });
+        setFollowersCount(followersRes.data?.data?.items?.length || followersRes.data?.data?.length || 0);
+        setFollowingCount(followingRes.data?.data?.items?.length || followingRes.data?.data?.length || 0);
       } catch (err) {
         console.error("Lỗi tải profile:", err);
         Alert.alert("Lỗi", err.response?.data?.message || "Không thể tải thông tin profile", [
@@ -111,7 +109,7 @@ export default function ProfileScreen() {
       {/* Header Section */}
       <View style={styles.header}>
         <Image
-          source={{ uri: user.profilePicture || "https://via.placeholder.com/100" }}
+          source={{ uri: user.avatar || "https://via.placeholder.com/100" }}
           style={styles.profilePicture}
           resizeMode="cover"
         />

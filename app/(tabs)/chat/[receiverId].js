@@ -1,7 +1,19 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
-import { Alert, FlatList, Image, KeyboardAvoidingView, Platform, SafeAreaView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Alert,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { fetchMessages, fetchUsers, getUserProfile, sendMessage } from "../../services/api";
 import { socketService } from "../../utils/socket";
 
@@ -14,121 +26,182 @@ export default function ChatWithUser() {
   const [myId, setMyId] = useState(null);
   const flatListRef = useRef(null);
 
-  useEffect(() => {
-    const loadMyId = async () => {
-      try {
-        const user = await AsyncStorage.getItem("user");
-        const parsedUser = JSON.parse(user);
-        setMyId(parsedUser.id);
-        console.log("My ID:", parsedUser.id);
-      } catch (err) {
-        console.log("Lỗi tải user từ AsyncStorage:", err);
-      }
-    };
+  const initializeSocket = useCallback(async () => {
+    try {
+      const user = await AsyncStorage.getItem("user");
+      const parsedUser = JSON.parse(user);
+      setMyId(parsedUser.id);
+      console.log("My ID:", parsedUser.id);
+      socketService.connect(parsedUser.id);
+    } catch (err) {
+      console.log("Error loading user from AsyncStorage:", err);
+    }
+  }, []);
 
-    const loadMessages = async () => {
-      try {
-        console.log("Loading messages for receiverId:", receiverId);
-        const res = await fetchMessages(receiverId);
-        console.log("Full API response (messages):", res);
-        const sortedMessages = res.data.data.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-        setMessages(sortedMessages);
-      } catch (err) {
-        console.log("Lỗi tải tin nhắn:", err.response ? err.response.data : err.message);
-      }
-    };
+  const fetchMessagesData = useCallback(async () => {
+    try {
+      console.log("Loading messages for receiverId:", receiverId);
+      const res = await fetchMessages(receiverId);
+      console.log("Full API response (messages):", res);
+      const sortedMessages = res.data.data.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      setMessages(sortedMessages);
+    } catch (err) {
+      console.log("Error fetching messages:", err.response ? err.response.data : err.message);
+    }
+  }, [receiverId]);
 
-    const loadReceiver = async () => {
-      setLoadingReceiver(true);
-      try {
-        console.log("Loading receiver for receiverId:", receiverId);
-        const usersRes = await fetchUsers();
-        console.log("Full API response (users):", usersRes);
-        if (usersRes.data && usersRes.data.data) {
-          const foundReceiver = usersRes.data.data.find(user => user._id === receiverId || user.id === receiverId);
-          if (foundReceiver) {
-            console.log("Found receiver with userName:", foundReceiver.userName);
-            setReceiver(foundReceiver);
+  const fetchReceiverData = useCallback(async () => {
+    setLoadingReceiver(true);
+    try {
+      console.log("Loading receiver for receiverId:", receiverId);
+      const usersRes = await fetchUsers();
+      console.log("Full API response (users):", usersRes);
+      if (usersRes.data && usersRes.data.data) {
+        const foundReceiver = usersRes.data.data.find(
+          (user) => user._id === receiverId || user.id === receiverId
+        );
+        if (foundReceiver) {
+          console.log("Found receiver with userName:", foundReceiver.userName);
+          setReceiver(foundReceiver);
+        } else {
+          console.log("No receiver found in fetchUsers, trying getUserProfile...");
+          const profileRes = await getUserProfile(receiverId);
+          console.log("Full API response (profile):", profileRes);
+          if (profileRes.data && profileRes.data.data) {
+            setReceiver(profileRes.data.data);
           } else {
-            console.log("No receiver found in fetchUsers, trying getUserProfile...");
-            const profileRes = await getUserProfile(receiverId);
-            console.log("Full API response (profile):", profileRes);
-            if (profileRes.data && profileRes.data.data) {
-              setReceiver(profileRes.data.data);
-            } else {
-              console.log("No user data found in profileRes");
-              setReceiver({ userName: "Không tìm thấy", name: "Không tìm thấy" });
-              Alert.alert("Lỗi", "Không thể tải thông tin người dùng.");
-            }
+            console.log("No user data found in profileRes");
+            setReceiver({ userName: "Không tìm thấy", name: "Không tìm thấy" });
+            Alert.alert("Lỗi", "Không thể tải thông tin người dùng.");
           }
         }
-      } catch (err) {
-        console.log("Lỗi tải thông tin người nhận:", err.response ? err.response.data : err.message);
-        setReceiver({ userName: "Lỗi tải dữ liệu", name: "Lỗi tải dữ liệu" });
-        Alert.alert("Lỗi", "Đã xảy ra lỗi khi tải thông tin người dùng.");
-      } finally {
-        setLoadingReceiver(false);
       }
-    };
+    } catch (err) {
+      console.log("Error fetching receiver:", err.response ? err.response.data : err.message);
+      setReceiver({ userName: "Lỗi tải dữ liệu", name: "Lỗi tải dữ liệu" });
+      Alert.alert("Lỗi", "Đã xảy ra lỗi khi tải thông tin người dùng.");
+    } finally {
+      setLoadingReceiver(false);
+    }
+  }, [receiverId]);
 
-    loadMyId();
-    loadMessages();
-    loadReceiver();
+  useEffect(() => {
+    initializeSocket();
+    fetchMessagesData();
+    fetchReceiverData();
+
+    const checkSocketConnection = setInterval(() => {
+      if (!socketService.socket?.connected) {
+        console.log("Socket không kết nối, thử kết nối lại...");
+        socketService.connect(myId);
+      } else {
+        console.log("Socket đang kết nối:", socketService.socket.id);
+      }
+    }, 3000);
 
     socketService.on("newMessage", (msg) => {
-      console.log("New message received:", msg);
-      if (msg.sender.id === receiverId || msg.receiver.id === receiverId) {
+      console.log("New message received via socket at:", new Date().toISOString(), JSON.stringify(msg, null, 2));
+      const senderId = msg.senderId?._id || msg.senderId;
+      const receiverId = msg.receiverId?._id || msg.receiverId;
+      if (senderId === myId && receiverId === receiverId) {
         setMessages((prev) => {
-          const updatedMessages = [...prev, msg].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-          if (flatListRef.current) {
-            flatListRef.current.scrollToEnd({ animated: true });
+          const exists = prev.find((m) => m._id === msg._id);
+          if (!exists) {
+            const updatedMessages = [...prev, msg].sort(
+              (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+            );
+            console.log("Updated messages at:", new Date().toISOString(), JSON.stringify(updatedMessages, null, 2));
+            if (flatListRef.current) {
+              flatListRef.current.scrollToEnd({ animated: true });
+            }
+            return updatedMessages;
           }
-          return updatedMessages;
+          return prev;
         });
+      } else if (senderId === receiverId && receiverId === myId) {
+        setMessages((prev) => {
+          const exists = prev.find((m) => m._id === msg._id);
+          if (!exists) {
+            const updatedMessages = [...prev, msg].sort(
+              (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+            );
+            console.log("Updated messages at:", new Date().toISOString(), JSON.stringify(updatedMessages, null, 2));
+            if (flatListRef.current) {
+              flatListRef.current.scrollToEnd({ animated: true });
+            }
+            return updatedMessages;
+          }
+          return prev;
+        });
+      } else {
+        console.log("Message ignored at:", new Date().toISOString(), "not relevant to this chat", { senderId, receiverId, myId });
       }
+    });
+
+    socketService.on("conversationUpdated", () => {
+      console.log("Conversation updated, fetching new messages...");
+      fetchMessagesData();
     });
 
     return () => {
       socketService.off("newMessage");
+      socketService.off("conversationUpdated");
+      clearInterval(checkSocketConnection);
     };
-  }, [receiverId]);
+  }, [receiverId, fetchMessagesData, fetchReceiverData, myId]);
 
   useEffect(() => {
     if (flatListRef.current && messages.length > 0) {
       flatListRef.current.scrollToEnd({ animated: true });
+      console.log("Scrolled to end, messages length:", messages.length);
     }
   }, [messages]);
 
   const handleSendMessage = async () => {
     if (!message.trim()) return;
     try {
-      console.log("Sending message to receiverId:", receiverId, "with content:", message);
+      console.log("Sending message to receiverId:", receiverId, "with content:", message, "at:", new Date().toISOString());
       const payload = { text: message, image: null };
       const res = await sendMessage(receiverId, payload);
-      console.log("Send message response:", res.data);
+      console.log("Send message response at:", new Date().toISOString(), res.data);
+      const newMessage = res.data.data;
       setMessages((prev) => {
-        const updatedMessages = [...prev, res.data.data].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-        if (flatListRef.current) {
-          flatListRef.current.scrollToEnd({ animated: true });
+        const exists = prev.find((m) => m._id === newMessage._id);
+        if (!exists) {
+          const updatedMessages = [...prev, newMessage].sort(
+            (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+          );
+          if (flatListRef.current) {
+            flatListRef.current.scrollToEnd({ animated: true });
+          }
+          return updatedMessages;
         }
-        return updatedMessages;
+        return prev;
       });
-      socketService.emit("newMessage", res.data.data);
+      socketService.emit("newMessage", {
+        ...newMessage,
+        senderId: { _id: myId },
+        receiverId: { _id: receiverId },
+      });
       setMessage("");
     } catch (err) {
-      console.log("Lỗi gửi tin nhắn:", err.response ? err.response.data : err.message);
+      console.log("Error sending message at:", new Date().toISOString(), err.response ? err.response.data : err.message);
       Alert.alert("Lỗi", "Không thể gửi tin nhắn.");
     }
   };
 
   const renderItem = ({ item }) => {
-    const isMyMessage = item.senderId._id === myId;
+    const isMyMessage = (item.senderId?._id || item.senderId) === myId;
+    console.log("Rendering message at:", new Date().toISOString(), JSON.stringify(item, null, 2));
     return (
       <View style={[styles.messageItem, isMyMessage ? styles.myMessage : styles.otherMessage]}>
-        <Text style={styles.messageText}>{item.text || item.content}</Text>
+        <Text style={styles.messageText}>{item.text || item.content || "Tin nhắn trống"}</Text>
       </View>
     );
   };
+
+  // Tối ưu hóa danh sách tin nhắn với useMemo
+  const memoizedMessages = useMemo(() => messages, [messages]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }}>
@@ -161,11 +234,13 @@ export default function ChatWithUser() {
           ) : (
             <FlatList
               ref={flatListRef}
-              data={messages}
-              keyExtractor={(item) => item._id}
+              data={memoizedMessages}
+              keyExtractor={(item) => item._id || String(Math.random())} // Fallback nếu _id thiếu
               renderItem={renderItem}
               contentContainerStyle={{ padding: 10, paddingBottom: 15 }}
               style={{ flex: 1 }}
+              extraData={memoizedMessages} // Đảm bảo render khi dữ liệu thay đổi
+              onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })} // Scroll tự động khi nội dung thay đổi
             />
           )}
         </View>
@@ -185,6 +260,9 @@ export default function ChatWithUser() {
     </SafeAreaView>
   );
 }
+
+// ... (styles giữ nguyên)
+// ... (styles giữ nguyên)
 
 const styles = StyleSheet.create({
   header: {

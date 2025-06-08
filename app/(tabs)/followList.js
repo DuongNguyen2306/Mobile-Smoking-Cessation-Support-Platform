@@ -4,13 +4,14 @@ import { useEffect, useState } from "react";
 import {
   Alert,
   FlatList,
+  Image,
   SafeAreaView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
-import { getMyFollowers, getMyFollowing } from "../services/api"; // Sửa đường dẫn
+import { getFollowers, getFollowing } from "../services/api"; // Cập nhật import
 
 export default function FollowListScreen() {
   const router = useRouter();
@@ -18,6 +19,9 @@ export default function FollowListScreen() {
   const [followers, setFollowers] = useState([]);
   const [activeTab, setActiveTab] = useState("following");
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState(null); // Lưu userId
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
 
   useEffect(() => {
     const fetchFollowData = async () => {
@@ -30,22 +34,32 @@ export default function FollowListScreen() {
           return;
         }
 
-        const followingRes = await getMyFollowing();
-        console.log("Following response:", followingRes.data);
-        const followersRes = await getMyFollowers();
-        console.log("Followers response:", followersRes.data);
+        const storedUser = await AsyncStorage.getItem("user");
+        const parsedUser = JSON.parse(storedUser);
+        if (!parsedUser?.id) {
+          throw new Error("Không tìm thấy userId");
+        }
+        setUserId(parsedUser.id);
 
-        setFollowing(followingRes.data?.data || []);
-        setFollowers(followersRes.data?.data || []);
+        console.log(`API call to getFollowing for userId: ${parsedUser.id}, page: ${page}, limit: ${limit}`);
+        const followingRes = await getFollowing(parsedUser.id, { page, limit });
+        console.log("Following response full:", followingRes);
+
+        console.log(`API call to getFollowers for userId: ${parsedUser.id}, page: ${page}, limit: ${limit}`);
+        const followersRes = await getFollowers(parsedUser.id, { page, limit });
+        console.log("Followers response full:", followersRes);
+
+        setFollowing(followingRes.data?.data?.items || followingRes.data?.data || []);
+        setFollowers(followersRes.data?.data?.items || followersRes.data?.data || []);
       } catch (err) {
         console.error("Lỗi lấy danh sách follow:", err.message, "Response:", err.response?.data);
-        Alert.alert("Lỗi", "Không thể tải danh sách follow");
+        Alert.alert("Lỗi", "Không thể tải danh sách follow. Vui lòng thử lại hoặc kiểm tra kết nối.");
       } finally {
         setLoading(false);
       }
     };
     fetchFollowData();
-  }, []);
+  }, [page, limit]); // Thêm phụ thuộc page và limit nếu cần reload
 
   const handleViewProfile = (userId) => {
     router.push({
@@ -57,15 +71,22 @@ export default function FollowListScreen() {
   const handleChat = (userId) => {
     router.push({
       pathname: "/(tabs)/chat/[receiverId]",
-      params: { userId },
+      params: { receiverId: userId },
     });
   };
 
   const renderUserItem = ({ item }) => (
     <View style={styles.userItem}>
-      <TouchableOpacity onPress={() => handleViewProfile(item.id)}>
-        <Text style={styles.userName}>{item.userName || "Không có tên"}</Text>
-        <Text style={styles.userEmail}>{item.email || "Không có email"}</Text>
+      <TouchableOpacity onPress={() => handleViewProfile(item.id)} style={styles.userInfo}>
+        {item.avatar ? (
+          <Image source={{ uri: item.avatar }} style={styles.avatar} />
+        ) : (
+          <View style={styles.avatarPlaceholder} />
+        )}
+        <View>
+          <Text style={styles.userName}>{item.userName || "Không có tên"}</Text>
+          <Text style={styles.userEmail}>{item.email || "Không có email"}</Text>
+        </View>
       </TouchableOpacity>
       <TouchableOpacity style={styles.chatButton} onPress={() => handleChat(item.id)}>
         <Text style={styles.chatButtonText}>Nhắn tin</Text>
@@ -96,8 +117,14 @@ export default function FollowListScreen() {
         data={activeTab === "following" ? following : followers}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderUserItem}
-        ListEmptyComponent={<Text style={styles.emptyText}>Danh sách trống</Text>}
+        ListEmptyComponent={
+          <Text style={styles.emptyText}>
+            Danh sách trống. Vui lòng kiểm tra lại hoặc làm mới trang.
+          </Text>
+        }
         contentContainerStyle={styles.list}
+        refreshing={loading}
+        onRefresh={fetchFollowData}
       />
     </SafeAreaView>
   );
@@ -119,6 +146,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     elevation: 1,
   },
+  userInfo: { flexDirection: "row", alignItems: "center" },
+  avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 10 },
+  avatarPlaceholder: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#ccc", marginRight: 10 },
   userName: { fontSize: 16, fontWeight: "600", color: "#333" },
   userEmail: { fontSize: 14, color: "#666" },
   chatButton: { padding: 8, backgroundColor: "#4A90E2", borderRadius: 8 },
