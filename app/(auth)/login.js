@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Alert, Button, StyleSheet, Text, TextInput, View } from "react-native";
 import { login } from "../services/api";
+import { socketService } from "../utils/socket"; // Tạo tệp utils/socket.js như hướng dẫn trước
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -15,8 +16,12 @@ export default function LoginScreen() {
       const { token, user } = res.data.data;
       await AsyncStorage.setItem("token", token);
       await AsyncStorage.setItem("user", JSON.stringify(user));
+
+      // Kết nối Socket với userId
+      socketService.connect(user.id);
+
       Alert.alert("Thành công", `Chào ${user.email}`, [
-        { text: "OK", onPress: () => router.push("/(tabs)/users/profile") },
+        { text: "OK", onPress: () => router.push("/(tabs)/blogs") },
       ]);
     } catch (err) {
       console.log("Lỗi đăng nhập:", err);

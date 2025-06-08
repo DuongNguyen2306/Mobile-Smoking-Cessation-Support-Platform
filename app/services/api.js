@@ -44,7 +44,7 @@ export const addComment = (blogId, content) => API.post(`/blogs/${blogId}/commen
 export const fetchUsers = () => API.get("/chat/users");
 export const fetchConversations = () => API.get("/chat/conversations");
 export const fetchMessages = (receiverId) => API.get(`/chat/messages/${receiverId}`);
-export const sendMessage = (receiverId, data) => API.post(`/chat/messages/${receiverId}`, data);
+export const sendMessage = (receiverId, data) => API.post(`/chat/messages/${receiverId}`, data); // Cập nhật để khớp với API
 export const markRead = (senderId) => API.put(`/chat/mark-read/${senderId}`);
 export const deleteMessage = (messageId) => API.delete(`/chat/messages/${messageId}`);
 
@@ -71,3 +71,5 @@ export const getFollowers = (id) => API.get(`/users/followers/${id}`);
 export const getFollowing = (id) => API.get(`/users/following/${id}`);
 export const getMyFollowers = () => API.get("/users/my-followers");
 export const getMyFollowing = () => API.get("/users/my-following");
+
+export default API; // Export instance axios mặc định

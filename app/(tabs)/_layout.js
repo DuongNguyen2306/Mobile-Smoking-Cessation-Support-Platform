@@ -30,7 +30,16 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarStyle: Platform.select({ ios: { position: "absolute" }, default: {} }),
+        tabBarStyle: {
+          ...Platform.select({ ios: { position: "absolute" }, default: {} }),
+          height: 60,
+          paddingBottom: 5,
+          backgroundColor: "#fff",
+          borderTopWidth: 1,
+          borderTopColor: "#ccc",
+          display: ({ route }) => (route.name === "chat/[receiverId]" ? "none" : "flex"), // Ẩn tab bar trên chat/[receiverId]
+        },
+        tabBarHideOnKeyboard: true, // Ẩn tab bar khi bàn phím hiện lên
       }}
     >
       <Tabs.Screen
@@ -46,13 +55,8 @@ export default function TabLayout() {
         options={{ title: "Chat", tabBarIcon: () => null }}
       />
       <Tabs.Screen
-        name="[id]"
-        options={{ href: null }}
-        listeners={({ navigation }) => ({
-          tabPress: (e) => {
-            e.preventDefault();
-          },
-        })}
+        name="chat/[receiverId]"
+        options={{ title: "Chat", tabBarIcon: () => null }}
       />
     </Tabs>
   );
