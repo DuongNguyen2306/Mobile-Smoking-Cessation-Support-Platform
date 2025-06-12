@@ -1,6 +1,6 @@
 import io from 'socket.io-client';
 
-const SOCKET_URL = 'http://192.168.0.198:5000'; // Replace with your actual server URL
+const SOCKET_URL = 'http://192.168.0.198:5000'; // URL server của bạn, giữ nguyên nếu đúng
 
 class SocketService {
   socket = null;
@@ -17,6 +17,7 @@ class SocketService {
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
     });
 
     this.socket.on('connect', () => {
@@ -24,11 +25,18 @@ class SocketService {
     });
 
     this.socket.on('connect_error', (error) => {
-      console.log('Socket connection error:', error);
+      console.log('Socket connection error:', error.message);
     });
 
-    this.socket.on('disconnect', () => {
-      console.log('Disconnected from socket server');
+    this.socket.on('disconnect', (reason) => {
+      console.log('Disconnected from socket server, reason:', reason);
+      if (reason === 'io server disconnect') {
+        this.connect(userId);
+      }
+    });
+
+    this.socket.on('reconnect_attempt', (attemptNumber) => {
+      console.log(`Reconnect attempt #${attemptNumber}`);
     });
 
     return this.socket;

@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -24,15 +25,17 @@ export default function ChatWithUser() {
   const [receiver, setReceiver] = useState(null);
   const [loadingReceiver, setLoadingReceiver] = useState(true);
   const [myId, setMyId] = useState(null);
+  const [isTyping, setIsTyping] = useState(false);
+  const [isReceiverOnline, setIsReceiverOnline] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
   const flatListRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
   const initializeSocket = useCallback(async () => {
     try {
       const user = await AsyncStorage.getItem("user");
       const parsedUser = JSON.parse(user);
       setMyId(parsedUser.id);
-      console.log("My ID:", parsedUser.id);
-      socketService.connect(parsedUser.id);
     } catch (err) {
       console.log("Error loading user from AsyncStorage:", err);
     }
@@ -40,9 +43,7 @@ export default function ChatWithUser() {
 
   const fetchMessagesData = useCallback(async () => {
     try {
-      console.log("Loading messages for receiverId:", receiverId);
       const res = await fetchMessages(receiverId);
-      console.log("Full API response (messages):", res);
       const sortedMessages = res.data.data.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
       setMessages(sortedMessages);
     } catch (err) {
@@ -53,24 +54,18 @@ export default function ChatWithUser() {
   const fetchReceiverData = useCallback(async () => {
     setLoadingReceiver(true);
     try {
-      console.log("Loading receiver for receiverId:", receiverId);
       const usersRes = await fetchUsers();
-      console.log("Full API response (users):", usersRes);
       if (usersRes.data && usersRes.data.data) {
         const foundReceiver = usersRes.data.data.find(
           (user) => user._id === receiverId || user.id === receiverId
         );
         if (foundReceiver) {
-          console.log("Found receiver with userName:", foundReceiver.userName);
           setReceiver(foundReceiver);
         } else {
-          console.log("No receiver found in fetchUsers, trying getUserProfile...");
           const profileRes = await getUserProfile(receiverId);
-          console.log("Full API response (profile):", profileRes);
           if (profileRes.data && profileRes.data.data) {
             setReceiver(profileRes.data.data);
           } else {
-            console.log("No user data found in profileRes");
             setReceiver({ userName: "Không tìm thấy", name: "Không tìm thấy" });
             Alert.alert("Lỗi", "Không thể tải thông tin người dùng.");
           }
@@ -85,85 +80,29 @@ export default function ChatWithUser() {
     }
   }, [receiverId]);
 
-  useEffect(() => {
-    initializeSocket();
-    fetchMessagesData();
-    fetchReceiverData();
-
-    const checkSocketConnection = setInterval(() => {
-      if (!socketService.socket?.connected) {
-        console.log("Socket không kết nối, thử kết nối lại...");
-        socketService.connect(myId);
-      } else {
-        console.log("Socket đang kết nối:", socketService.socket.id);
-      }
-    }, 3000);
-
-    socketService.on("newMessage", (msg) => {
-      console.log("New message received via socket at:", new Date().toISOString(), JSON.stringify(msg, null, 2));
-      const senderId = msg.senderId?._id || msg.senderId;
-      const receiverId = msg.receiverId?._id || msg.receiverId;
-      if (senderId === myId && receiverId === receiverId) {
-        setMessages((prev) => {
-          const exists = prev.find((m) => m._id === msg._id);
-          if (!exists) {
-            const updatedMessages = [...prev, msg].sort(
-              (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
-            );
-            console.log("Updated messages at:", new Date().toISOString(), JSON.stringify(updatedMessages, null, 2));
-            if (flatListRef.current) {
-              flatListRef.current.scrollToEnd({ animated: true });
-            }
-            return updatedMessages;
-          }
-          return prev;
-        });
-      } else if (senderId === receiverId && receiverId === myId) {
-        setMessages((prev) => {
-          const exists = prev.find((m) => m._id === msg._id);
-          if (!exists) {
-            const updatedMessages = [...prev, msg].sort(
-              (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
-            );
-            console.log("Updated messages at:", new Date().toISOString(), JSON.stringify(updatedMessages, null, 2));
-            if (flatListRef.current) {
-              flatListRef.current.scrollToEnd({ animated: true });
-            }
-            return updatedMessages;
-          }
-          return prev;
-        });
-      } else {
-        console.log("Message ignored at:", new Date().toISOString(), "not relevant to this chat", { senderId, receiverId, myId });
-      }
-    });
-
-    socketService.on("conversationUpdated", () => {
-      console.log("Conversation updated, fetching new messages...");
-      fetchMessagesData();
-    });
-
-    return () => {
-      socketService.off("newMessage");
-      socketService.off("conversationUpdated");
-      clearInterval(checkSocketConnection);
-    };
-  }, [receiverId, fetchMessagesData, fetchReceiverData, myId]);
-
-  useEffect(() => {
-    if (flatListRef.current && messages.length > 0) {
-      flatListRef.current.scrollToEnd({ animated: true });
-      console.log("Scrolled to end, messages length:", messages.length);
+  const handleImageSelect = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Lỗi", "Cần cấp quyền truy cập thư viện ảnh!");
+      return;
     }
-  }, [messages]);
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.5,
+    });
+    if (!result.canceled && result.assets[0].uri) {
+      setSelectedImage(result.assets[0]);
+    }
+  };
 
   const handleSendMessage = async () => {
-    if (!message.trim()) return;
+    if (!message.trim() && !selectedImage) return;
     try {
-      console.log("Sending message to receiverId:", receiverId, "with content:", message, "at:", new Date().toISOString());
-      const payload = { text: message, image: null };
+      const payload = {
+        text: message,
+        image: selectedImage ? selectedImage.uri : null,
+      };
       const res = await sendMessage(receiverId, payload);
-      console.log("Send message response at:", new Date().toISOString(), res.data);
       const newMessage = res.data.data;
       setMessages((prev) => {
         const exists = prev.find((m) => m._id === newMessage._id);
@@ -171,9 +110,7 @@ export default function ChatWithUser() {
           const updatedMessages = [...prev, newMessage].sort(
             (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
           );
-          if (flatListRef.current) {
-            flatListRef.current.scrollToEnd({ animated: true });
-          }
+          flatListRef.current?.scrollToEnd({ animated: true });
           return updatedMessages;
         }
         return prev;
@@ -184,45 +121,146 @@ export default function ChatWithUser() {
         receiverId: { _id: receiverId },
       });
       setMessage("");
+      setSelectedImage(null);
     } catch (err) {
-      console.log("Error sending message at:", new Date().toISOString(), err.response ? err.response.data : err.message);
+      console.log("Error sending message:", err.response ? err.response.data : err.message);
       Alert.alert("Lỗi", "Không thể gửi tin nhắn.");
     }
   };
 
+  const handleTyping = (text) => {
+    setMessage(text);
+    if (text.trim()) {
+      if (!isTyping) {
+        setIsTyping(true);
+        socketService.emit("typing", { userId: myId, receiverId, isTyping: true });
+      }
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        setIsTyping(false);
+        socketService.emit("typing", { userId: myId, receiverId, isTyping: false });
+      }, 2000);
+    } else if (isTyping) {
+      setIsTyping(false);
+      socketService.emit("typing", { userId: myId, receiverId, isTyping: false });
+    }
+  };
+
+  useEffect(() => {
+    initializeSocket();
+    fetchMessagesData();
+    fetchReceiverData();
+
+    if (myId) {
+      socketService.connect(myId);
+      socketService.emit("userStatus", { userId: myId, online: true });
+
+      socketService.on("newMessage", (msg) => {
+        console.log("Received newMessage:", msg);
+        const senderId = msg.senderId?._id || msg.senderId;
+        const receiverIdFromMsg = msg.receiverId?._id || msg.receiverId;
+        if (
+          (senderId === myId && receiverIdFromMsg === receiverId) ||
+          (senderId === receiverId && receiverIdFromMsg === myId)
+        ) {
+          setMessages((prev) => {
+            const exists = prev.find((m) => m._id === msg._id);
+            if (!exists) {
+              const updatedMessages = [...prev, msg].sort(
+                (a, b) => new Date(a.createdAt) - new Date(b.createdAt)
+              );
+              flatListRef.current?.scrollToEnd({ animated: true });
+              return updatedMessages;
+            }
+            return prev;
+          });
+        }
+      });
+
+      socketService.on("typing", ({ userId, isTyping }) => {
+        console.log("Received typing:", { userId, isTyping, receiverId });
+        if (userId === receiverId) {
+          setIsReceiverOnline(isTyping || isReceiverOnline);
+        }
+      });
+
+      socketService.on("userStatus", ({ userId, online }) => {
+        console.log("Received userStatus for receiver:", { userId, online, receiverId });
+        if (userId === receiverId) {
+          setIsReceiverOnline(online);
+        }
+      });
+    }
+
+    return () => {
+      if (myId) {
+        socketService.emit("userStatus", { userId: myId, online: false });
+        socketService.off("newMessage");
+        socketService.off("typing");
+        socketService.off("userStatus");
+      }
+    };
+  }, [receiverId, fetchMessagesData, fetchReceiverData, myId]);
+
+  useEffect(() => {
+    if (flatListRef.current && messages.length > 0) {
+      flatListRef.current.scrollToEnd({ animated: true });
+    }
+  }, [messages]);
+
   const renderItem = ({ item }) => {
     const isMyMessage = (item.senderId?._id || item.senderId) === myId;
-    console.log("Rendering message at:", new Date().toISOString(), JSON.stringify(item, null, 2));
     return (
       <View style={[styles.messageItem, isMyMessage ? styles.myMessage : styles.otherMessage]}>
-        <Text style={styles.messageText}>{item.text || item.content || "Tin nhắn trống"}</Text>
+        {item.image && (
+          <Image
+            source={{ uri: item.image }}
+            style={styles.messageImage}
+            resizeMode="contain"
+          />
+        )}
+        {item.text && <Text style={styles.messageText}>{item.text}</Text>}
+        <Text style={styles.messageTime}>
+          {new Date(item.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+        </Text>
       </View>
     );
   };
 
-  // Tối ưu hóa danh sách tin nhắn với useMemo
   const memoizedMessages = useMemo(() => messages, [messages]);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         {receiver && receiver.profilePicture ? (
           <Image source={{ uri: receiver.profilePicture }} style={styles.avatar} />
         ) : (
           <View style={styles.avatarPlaceholder} />
         )}
-        <Text style={styles.headerTitle}>
-          {loadingReceiver ? "Đang tải..." : receiver?.userName || receiver?.name || "Không tìm thấy người dùng"}
-        </Text>
-        <Text style={styles.headerSub}>Đang hoạt động</Text>
+        <View style={styles.headerInfo}>
+          <Text style={styles.headerTitle}>
+            {loadingReceiver ? "Đang tải..." : receiver?.userName || receiver?.name || "Không tìm thấy người dùng"}
+          </Text>
+          <View style={styles.statusContainer}>
+            <View
+              style={[
+                styles.statusIndicator,
+                { backgroundColor: isReceiverOnline ? "#4caf50" : "#ef5350" },
+              ]}
+            />
+            <Text style={styles.headerSub}>
+              {isReceiverOnline ? (isTyping ? "Đang nhập..." : "Đang hoạt động") : "Không hoạt động"}
+            </Text>
+          </View>
+        </View>
       </View>
 
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
+        style={styles.container}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0}
       >
-        <View style={{ flex: 1 }}>
+        <View style={styles.chatContainer}>
           {messages.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyTitle}>Bắt đầu cuộc trò chuyện!</Text>
@@ -235,25 +273,40 @@ export default function ChatWithUser() {
             <FlatList
               ref={flatListRef}
               data={memoizedMessages}
-              keyExtractor={(item) => item._id || String(Math.random())} // Fallback nếu _id thiếu
+              keyExtractor={(item) => item._id || String(Math.random())}
               renderItem={renderItem}
-              contentContainerStyle={{ padding: 10, paddingBottom: 15 }}
-              style={{ flex: 1 }}
-              extraData={memoizedMessages} // Đảm bảo render khi dữ liệu thay đổi
-              onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })} // Scroll tự động khi nội dung thay đổi
+              contentContainerStyle={styles.messageList}
+              style={styles.flatList}
+              onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
             />
           )}
         </View>
 
+        {selectedImage && (
+          <View style={styles.selectedImageContainer}>
+            <Image source={{ uri: selectedImage.uri }} style={styles.selectedImage} />
+            <TouchableOpacity
+              style={styles.removeImageButton}
+              onPress={() => setSelectedImage(null)}
+            >
+              <Text style={styles.removeImageText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={styles.inputContainer}>
+          <TouchableOpacity style={styles.imageButton} onPress={handleImageSelect}>
+            <Text style={styles.imageButtonText}>📷</Text>
+          </TouchableOpacity>
           <TextInput
             style={styles.input}
             placeholder="Nhập tin nhắn..."
             value={message}
-            onChangeText={setMessage}
+            onChangeText={handleTyping}
+            multiline
           />
           <TouchableOpacity onPress={handleSendMessage} style={styles.sendButton}>
-            <Text style={styles.sendText}>Gửi</Text>
+            <Text style={styles.sendText}>➤</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -261,10 +314,8 @@ export default function ChatWithUser() {
   );
 }
 
-// ... (styles giữ nguyên)
-// ... (styles giữ nguyên)
-
 const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#f0f2f5" },
   header: {
     backgroundColor: "#00695c",
     paddingTop: 12,
@@ -273,16 +324,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
+  headerInfo: { flex: 1 },
   avatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     marginRight: 10,
+    borderWidth: 2,
+    borderColor: "#fff",
   },
   avatarPlaceholder: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: "#ccc",
     marginRight: 10,
   },
@@ -291,16 +345,26 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "white",
   },
+  statusContainer: { flexDirection: "row", alignItems: "center", marginTop: 2 },
+  statusIndicator: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 6,
+  },
   headerSub: {
     fontSize: 14,
     color: "white",
-    marginTop: 2,
   },
+  chatContainer: { flex: 1 },
+  flatList: { flex: 1 },
+  messageList: { padding: 10, paddingBottom: 15 },
   messageItem: {
     padding: 10,
     borderRadius: 10,
     marginBottom: 8,
     maxWidth: "70%",
+    boxShadow: "0px 1px 2px rgba(0, 0, 0, 0.1)",
   },
   myMessage: {
     backgroundColor: "#007AFF",
@@ -308,13 +372,25 @@ const styles = StyleSheet.create({
     marginLeft: "30%",
   },
   otherMessage: {
-    backgroundColor: "#e0e0e0",
+    backgroundColor: "#fff",
     alignSelf: "flex-start",
     marginRight: "30%",
   },
   messageText: {
     fontSize: 16,
     color: "#000",
+  },
+  messageImage: {
+    maxWidth: 200,
+    height: 150,
+    borderRadius: 8,
+    marginBottom: 4,
+  },
+  messageTime: {
+    fontSize: 12,
+    color: "#666",
+    alignSelf: "flex-end",
+    marginTop: 4,
   },
   inputContainer: {
     flexDirection: "row",
@@ -324,6 +400,13 @@ const styles = StyleSheet.create({
     borderColor: "#ccc",
     backgroundColor: "#fff",
   },
+  imageButton: {
+    padding: 10,
+    marginRight: 5,
+  },
+  imageButtonText: {
+    fontSize: 20,
+  },
   input: {
     flex: 1,
     borderWidth: 1,
@@ -332,6 +415,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 8,
     marginRight: 10,
+    backgroundColor: "#fff",
+    maxHeight: 100,
   },
   sendButton: {
     backgroundColor: "#007AFF",
@@ -342,11 +427,40 @@ const styles = StyleSheet.create({
   sendText: {
     color: "#fff",
     fontWeight: "bold",
+    fontSize: 18,
+  },
+  selectedImageContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 10,
+    backgroundColor: "#e8f0fe",
+    borderTopWidth: 1,
+    borderColor: "#ccc",
+  },
+  selectedImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    marginRight: 10,
+  },
+  removeImageButton: {
+    backgroundColor: "#ef5350",
+    borderRadius: 15,
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  removeImageText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
   },
   emptyContainer: {
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 80,
+    padding: 20,
   },
   emptyTitle: {
     fontSize: 22,
@@ -358,7 +472,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#666",
     textAlign: "center",
-    paddingHorizontal: 20,
     marginBottom: 20,
   },
   startChatButton: {
