@@ -198,7 +198,11 @@ export default function ChatScreen() {
 
         finalConversations = (await Promise.all(conversationPromises))
           .filter((conv) => conv !== null)
-          .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+          .sort((a, b) => {
+            if (a.lastMessage && !b.lastMessage) return -1
+            if (!a.lastMessage && b.lastMessage) return 1
+            return new Date(b.updatedAt) - new Date(a.updatedAt)
+          })
         console.log("💬 Processed conversations:", finalConversations.length)
       } else if (usersData.length > 0) {
         console.log("🔄 Fallback: Converting users to conversations...")
@@ -240,6 +244,7 @@ export default function ChatScreen() {
   useEffect(() => {
     const monitorConnection = setInterval(() => {
       const info = socketService.getConnectionInfo()
+      console.log("🔌 Socket connection status:", info.status)
       setConnectionInfo(info)
       setDebugInfo((prev) => ({ ...prev, socketConnected: info.status === "connected" }))
     }, 2000)
@@ -280,18 +285,24 @@ export default function ChatScreen() {
         })
 
         setConversations((prevConversations) =>
-          prevConversations.map((conv) =>
-            conv.user._id === userId
-              ? {
-                  ...conv,
-                  user: {
-                    ...conv.user,
-                    online,
-                    lastSeen: lastSeen || timestamp,
-                  },
-                }
-              : conv,
-          ),
+          prevConversations
+            .map((conv) =>
+              conv.user._id === userId
+                ? {
+                    ...conv,
+                    user: {
+                      ...conv.user,
+                      online,
+                      lastSeen: lastSeen || timestamp,
+                    },
+                  }
+                : conv,
+            )
+            .sort((a, b) => {
+              if (a.lastMessage && !b.lastMessage) return -1
+              if (!a.lastMessage && b.lastMessage) return 1
+              return new Date(b.updatedAt) - new Date(a.updatedAt)
+            }),
         )
       }
 
@@ -308,22 +319,28 @@ export default function ChatScreen() {
         setOnlineUsers(newOnlineMap)
 
         setConversations((prevConversations) =>
-          prevConversations.map((conv) => {
-            const userStatus = newOnlineMap.get(conv.user._id)
-            return {
-              ...conv,
-              user: {
-                ...conv.user,
-                online: userStatus?.online || false,
-                lastSeen: userStatus?.lastSeen || conv.user.lastSeen,
-              },
-            }
-          }),
+          prevConversations
+            .map((conv) => {
+              const userStatus = newOnlineMap.get(conv.user._id)
+              return {
+                ...conv,
+                user: {
+                  ...conv.user,
+                  online: userStatus?.online || false,
+                  lastSeen: userStatus?.lastSeen || conv.user.lastSeen,
+                },
+              }
+            })
+            .sort((a, b) => {
+              if (a.lastMessage && !b.lastMessage) return -1
+              if (!a.lastMessage && b.lastMessage) return 1
+              return new Date(b.updatedAt) - new Date(a.updatedAt)
+            }),
         )
       }
 
       const handleNewMessage = (message) => {
-        console.log("📨 Received new message:", message)
+        console.log("📨 Received new message (Realtime):", JSON.stringify(message))
         setUnreadCount((prev) => prev + 1)
 
         const senderId = message.senderId?._id || message.senderId
@@ -343,7 +360,11 @@ export default function ChatScreen() {
                   : updatedConversations[existingConvIndex].unreadCount,
               updatedAt: message.createdAt || new Date().toISOString(),
             }
-            return updatedConversations.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+            return updatedConversations.sort((a, b) => {
+              if (a.lastMessage && !b.lastMessage) return -1
+              if (!a.lastMessage && b.lastMessage) return 1
+              return new Date(b.updatedAt) - new Date(a.updatedAt)
+            })
           } else {
             const newConversation = {
               user: {
@@ -357,9 +378,21 @@ export default function ChatScreen() {
               unreadCount: senderId !== myId ? 1 : 0,
               updatedAt: message.createdAt || new Date().toISOString(),
             }
-            return [newConversation, ...prevConversations].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+            return [newConversation, ...prevConversations].sort((a, b) => {
+              if (a.lastMessage && !b.lastMessage) return -1
+              if (!a.lastMessage && b.lastMessage) return 1
+              return new Date(b.updatedAt) - new Date(a.updatedAt)
+            })
           }
         })
+
+        // Thêm fallback nhẹ để đảm bảo đồng bộ nếu socket trễ
+        setTimeout(() => {
+          if (!socketService.isConnected()) {
+            console.log("⚠️ Socket disconnected, triggering light refresh...")
+            checkAuthAndLoadData()
+          }
+        }, 2000)
       }
 
       if (socketService && typeof socketService.on === "function") {
@@ -389,7 +422,7 @@ export default function ChatScreen() {
         }
       }
     }
-  }, [myId])
+  }, [myId, checkAuthAndLoadData])
 
   const onRefresh = () => {
     console.log("🔄 Manual refresh triggered")
@@ -636,16 +669,6 @@ ${Array.from(onlineUsers.entries())
           />
         )}
       </View>
-
-      {__DEV__ && (
-        <TouchableOpacity style={styles.debugInfo} onPress={handleDebugInfo}>
-          <Text style={styles.debugText}>
-            🔍 API: ${debugInfo.apiConnected ? "✅" : "❌"} | Socket: ${debugInfo.socketConnected ? "✅" : "❌"} |
-            Conversations: ${debugInfo.conversationsFetched ? "✅" : "❌"} | Users: ${debugInfo.usersFetched ? "✅" : "❌"} |
-            Data: ${conversations.length}
-          </Text>
-        </TouchableOpacity>
-      )}
     </SafeAreaView>
   )
 }
@@ -918,19 +941,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "bold",
     marginLeft: 8,
-  },
-  debugInfo: {
-    position: "absolute",
-    bottom: 100,
-    left: 10,
-    right: 10,
-    backgroundColor: "rgba(0,0,0,0.8)",
-    padding: 8,
-    borderRadius: 8,
-  },
-  debugText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    textAlign: "center",
   },
 })
