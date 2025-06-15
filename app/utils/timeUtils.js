@@ -23,7 +23,7 @@ export const formatLastSeen = (timestamp) => {
   if (!timestamp) return "Chưa xác định"
 
   const timeAgo = getTimeAgo(timestamp)
-  return timeAgo === "vừa xong" ? "Đang hoạt động" : `Hoạt động ${timeAgo} trước`
+  return timeAgo === "vừa xong" ? "Vừa truy cập" : `${timeAgo} trước`
 }
 
 export const isRecentlyOnline = (timestamp) => {

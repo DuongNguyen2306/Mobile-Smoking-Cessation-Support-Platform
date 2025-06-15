@@ -340,53 +340,54 @@ export default function ChatScreen() {
       }
 
       const handleNewMessage = (message) => {
-        console.log("📨 Received new message (Realtime):", JSON.stringify(message))
-        setUnreadCount((prev) => prev + 1)
+  console.log("📨 Received new message (Realtime):", JSON.stringify(message))
+  setUnreadCount((prev) => prev + 1)
 
-        const senderId = message.senderId?._id || message.senderId
-        const receiverId = message.receiverId?._id || message.receiverId
-        const otherUserId = senderId === myId ? receiverId : senderId
+  const senderId = message.senderId?._id || message.senderId
+  const receiverId = message.receiverId?._id || message.receiverId
+  const otherUserId = senderId === myId ? receiverId : senderId
 
-        setConversations((prevConversations) => {
-          const existingConvIndex = prevConversations.findIndex((conv) => conv.user._id === otherUserId)
-          if (existingConvIndex >= 0) {
-            const updatedConversations = [...prevConversations]
-            updatedConversations[existingConvIndex] = {
-              ...updatedConversations[existingConvIndex],
-              lastMessage: message,
-              unreadCount:
-                senderId !== myId
-                  ? (updatedConversations[existingConvIndex].unreadCount || 0) + 1
-                  : updatedConversations[existingConvIndex].unreadCount,
-              updatedAt: message.createdAt || new Date().toISOString(),
-            }
-            return updatedConversations.sort((a, b) => {
-              if (a.lastMessage && !b.lastMessage) return -1
-              if (!a.lastMessage && b.lastMessage) return 1
-              return new Date(b.updatedAt) - new Date(a.updatedAt)
-            })
-          } else {
-            const newConversation = {
-              user: {
-                _id: otherUserId,
-                userName: message.senderId?.userName || message.receiverId?.userName || "Unknown User",
-                profilePicture: message.senderId?.profilePicture || message.receiverId?.profilePicture,
-                lastSeen: new Date().toISOString(),
-                online: false,
-              },
-              lastMessage: message,
-              unreadCount: senderId !== myId ? 1 : 0,
-              updatedAt: message.createdAt || new Date().toISOString(),
-            }
-            return [newConversation, ...prevConversations].sort((a, b) => {
-              if (a.lastMessage && !b.lastMessage) return -1
-              if (!a.lastMessage && b.lastMessage) return 1
-              return new Date(b.updatedAt) - new Date(a.updatedAt)
-            })
-          }
-        })
+  setConversations((prevConversations) => {
+    const existingConvIndex = prevConversations.findIndex((conv) => conv.user._id === otherUserId)
+    if (existingConvIndex >= 0) {
+      const updatedConversations = [...prevConversations]
+      updatedConversations[existingConvIndex] = {
+        ...updatedConversations[existingConvIndex],
+        lastMessage: message,
+        unreadCount:
+          senderId !== myId
+            ? (updatedConversations[existingConvIndex].unreadCount || 0) + 1
+            : updatedConversations[existingConvIndex].unreadCount,
+        updatedAt: message.createdAt || new Date().toISOString(),
+      }
+      return updatedConversations.sort((a, b) => {
+        if (a.lastMessage && !b.lastMessage) return -1
+        if (!a.lastMessage && b.lastMessage) return 1
+        return new Date(b.updatedAt) - new Date(a.updatedAt)
+      })
+    } else {
+      const newConversation = {
+        user: {
+          _id: otherUserId,
+          userName: message.senderId?.userName || message.receiverId?.userName || "Unknown User",
+          profilePicture: message.senderId?.profilePicture || message.receiverId?.profilePicture,
+          lastSeen: new Date().toISOString(),
+          online: false,
+        },
+        lastMessage: message,
+        unreadCount: senderId !== myId ? 1 : 0,
+        updatedAt: message.createdAt || new Date().toISOString(),
+      }
+      return [newConversation, ...prevConversations].sort((a, b) => {
+        if (a.lastMessage && !b.lastMessage) return -1
+        if (!a.lastMessage && b.lastMessage) return 1
+        return new Date(b.updatedAt) - new Date(a.updatedAt)
+      })
+    }
+  })
 
-        // Thêm fallback nhẹ để đảm bảo đồng bộ nếu socket trễ
+        
+
         setTimeout(() => {
           if (!socketService.isConnected()) {
             console.log("⚠️ Socket disconnected, triggering light refresh...")
@@ -494,14 +495,18 @@ ${Array.from(onlineUsers.entries())
     window.refreshConversations = refreshConversations
   }
 
-  const formatLastMessage = (message) => {
-    if (!message) return "Chưa có tin nhắn"
-    if (message.image && !message.text) return "📷 Đã gửi ảnh"
-    const text = message.text || message.content || "Tin nhắn mới"
-    return text.length > 35 ? `${text.substring(0, 35)}...` : text
-  }
+  const formatLastMessage = (message, userId, otherUserName) => {
+  if (!message) return "Chưa có tin nhắn"
+  if (message.image && !message.text) return "📷 Đã gửi ảnh"
 
-  const renderItem = ({ item, index }) => {
+  const senderId = message.senderId?._id || message.senderId
+  const senderName = senderId === userId ? "Bạn" : otherUserName || "Unknown User"
+  const text = message.text || message.content || "Tin nhắn mới"
+
+  return `${senderName}: ${text.length > 35 ? `${text.substring(0, 35)}...` : text}`
+}
+
+  const renderItem = ({ item }) => {
     const user = item.user
     const unreadCount = item.unreadCount || 0
     const lastMessage = item.lastMessage
@@ -511,11 +516,10 @@ ${Array.from(onlineUsers.entries())
       lastSeen: user.lastSeen,
     }
     const isOnline = isUserOnline(userStatus)
-    const statusText = formatLastSeen(userStatus.lastSeen || userStatus.timestamp)
 
     return (
       <TouchableOpacity
-        style={[styles.chatItem, { marginTop: index === 0 ? 0 : 8 }]}
+        style={styles.chatItem}
         onPress={() => handleChatWithUser(user._id)}
         activeOpacity={0.8}
       >
@@ -528,13 +532,14 @@ ${Array.from(onlineUsers.entries())
               source={{ uri: user.profilePicture || "https://via.placeholder.com/60" }}
               style={styles.avatar}
             />
-            <View
-              style={[
-                styles.statusIndicator,
-                { backgroundColor: isOnline ? "#4CAF50" : "#BDBDBD" },
-                isOnline && styles.pulseAnimation,
-              ]}
-            />
+            {isOnline && (
+              <View
+                style={[
+                  styles.statusIndicator,
+                  { backgroundColor: "#4CAF50" },
+                ]}
+              />
+            )}
           </View>
 
           <View style={styles.chatInfo}>
@@ -555,20 +560,12 @@ ${Array.from(onlineUsers.entries())
             </View>
 
             <Text style={styles.lastMessage} numberOfLines={1}>
-              {formatLastMessage(lastMessage)}
+              {formatLastMessage(lastMessage, myId, user.userName)}
             </Text>
 
-            <View style={styles.statusRow}>
-              <View style={styles.statusContainer}>
-                <View
-                  style={[
-                    styles.smallStatusIndicator,
-                    { backgroundColor: isOnline ? "#4CAF50" : "#BDBDBD" },
-                  ]}
-                />
-                <Text style={styles.statusText}>{statusText}</Text>
-              </View>
-            </View>
+            {!isOnline && (
+              <Text style={styles.statusText}>{formatLastSeen(userStatus.lastSeen || userStatus.timestamp)}</Text>
+            )}
           </View>
         </LinearGradient>
       </TouchableOpacity>
@@ -832,9 +829,6 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: "#FFFFFF",
   },
-  pulseAnimation: {
-    animation: "pulse 1.5s infinite",
-  },
   chatInfo: {
     flex: 1,
   },
@@ -875,20 +869,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#666",
     marginBottom: 6,
-  },
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  statusContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  smallStatusIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
   },
   statusText: {
     fontSize: 12,

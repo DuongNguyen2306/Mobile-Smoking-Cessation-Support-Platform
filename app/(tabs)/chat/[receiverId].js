@@ -138,56 +138,61 @@ export default function ChatWithUser() {
   }
 
   const handleSendMessage = async () => {
-    if (!message.trim() && !selectedImage) return
+  if (!message.trim() && !selectedImage) return
 
-    const tempMessage = {
-      _id: `temp_${Date.now()}`,
-      text: message,
-      image: selectedImage ? selectedImage.uri : null,
-      senderId: { _id: myId },
-      receiverId: { _id: receiverId },
-      createdAt: new Date().toISOString(),
-      isTemp: true,
-    }
-
-    setMessages((prev) => [...prev, tempMessage])
-    setMessage("")
-    setSelectedImage(null)
-
-    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
-
-    try {
-      console.log("📤 Sending message to:", receiverId)
-      const payload = {
-        text: message,
-        image: selectedImage ? selectedImage.uri : null,
-      }
-
-      const res = await sendMessage(receiverId, payload)
-      const newMessage = res.data.data
-      console.log("✅ Message sent via API:", newMessage)
-
-      setMessages((prev) =>
-        prev
-          .map((msg) => (msg._id === tempMessage._id ? newMessage : msg))
-          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)),
-      )
-
-      if (socketService && socketService.isConnected()) {
-        const socketData = {
-          ...newMessage,
-          senderId: { _id: myId },
-          receiverId: { _id: receiverId },
-        }
-        socketService.emit("newMessage", socketData) // Sửa lại từ sendMessage thành emit
-        console.log("✅ Message emitted via socket")
-      }
-    } catch (err) {
-      console.log("❌ Error sending message:", err.response ? err.response.data : err.message)
-      setMessages((prev) => prev.filter((msg) => msg._id !== tempMessage._id))
-      Alert.alert("Lỗi", "Không thể gửi tin nhắn.")
-    }
+  const tempMessage = {
+    _id: `temp_${Date.now()}`,
+    text: message,
+    image: selectedImage ? selectedImage.uri : null,
+    senderId: { _id: myId },
+    receiverId: { _id: receiverId },
+    createdAt: new Date().toISOString(),
+    isTemp: true,
   }
+
+  setMessages((prev) => [...prev, tempMessage])
+  setMessage("")
+  setSelectedImage(null)
+
+  setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
+
+  try {
+    console.log("📤 Sending message to:", receiverId)
+    const payload = {
+      text: tempMessage.text,
+      image: tempMessage.image,
+    }
+
+    const res = await sendMessage(receiverId, payload)
+    const newMessage = res.data.data
+    console.log("✅ Message sent via API:", newMessage)
+
+    setMessages((prev) =>
+      prev
+        .map((msg) => (msg._id === tempMessage._id ? newMessage : msg))
+        .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+    )
+
+    if (socketService && socketService.isConnected()) {
+      const socketData = {
+        ...newMessage,
+        senderId: { _id: myId },
+        receiverId: { _id: receiverId },
+      }
+      socketService.emit("newMessage", socketData)
+      console.log("✅ Message emitted via socket")
+
+      // ✅ THÊM VÀO ĐÂY để cập nhật danh sách chat bên ngoài
+      if (typeof window !== "undefined" && typeof window.refreshConversations === "function") {
+        window.refreshConversations()
+      }
+    }
+  } catch (err) {
+    console.log("❌ Error sending message:", err.response ? err.response.data : err.message)
+    setMessages((prev) => prev.filter((msg) => msg._id !== tempMessage._id))
+    Alert.alert("Lỗi", "Không thể gửi tin nhắn.")
+  }
+}
 
   const handleTyping = (text) => {
     setMessage(text)

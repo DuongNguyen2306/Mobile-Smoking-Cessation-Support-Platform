@@ -81,6 +81,7 @@ export default function BlogDetailScreen() {
         if (userData) {
           const parsedUser = JSON.parse(userData)
           setUserId(parsedUser._id || parsedUser.id)
+          console.log("Current userId from AsyncStorage:", parsedUser._id || parsedUser.id)
         }
 
         const res = await fetchBlogBySlug(slug)
@@ -92,10 +93,13 @@ export default function BlogDetailScreen() {
               : [res.data.data.tags]
             : [],
         }
+        console.log("Full blog data from API:", res.data.data)
+        console.log("Blog user data from API:", transformedBlog.user)
+        const targetUserId = transformedBlog.user._id || transformedBlog.user.id || transformedBlog.user.userId
+        console.log("Extracted targetUserId from blog:", targetUserId)
         setBlog(transformedBlog)
 
         const followingList = await getStoredFollowing()
-        const targetUserId = transformedBlog.user._id || transformedBlog.user.id
         setIsFollowing(followingList.includes(targetUserId))
       } catch (err) {
         console.log("Lỗi tải blog chi tiết:", err)
@@ -159,17 +163,16 @@ export default function BlogDetailScreen() {
   }
 
   const handleViewProfile = () => {
-    if (blog.user._id || blog.user.id) {
-      const userId = blog.user._id || blog.user.id
-      if (!isValidObjectId(userId)) {
-        Alert.alert("Lỗi", "ID người dùng không hợp lệ")
-        return
-      }
-      router.push({
-        pathname: "/[id]",
-        params: { id: userId },
-      })
+    const targetUserId = blog.user?._id || blog.user?.id || blog.user?.userId
+    console.log("Navigating to profile with targetUserId:", targetUserId, "current userId:", userId)
+    if (!targetUserId || !isValidObjectId(targetUserId)) {
+      Alert.alert("Lỗi", "ID người dùng không hợp lệ. Vui lòng kiểm tra dữ liệu blog.")
+      return
     }
+    router.push({
+      pathname: "/userProfile",
+      params: { userId: targetUserId },
+    })
   }
 
   const handleFollow = async () => {
@@ -179,7 +182,7 @@ export default function BlogDetailScreen() {
       return
     }
 
-    const targetUserId = blog.user._id || blog.user.id
+    const targetUserId = blog.user._id || blog.user.id || blog.user.userId
     if (!isValidObjectId(targetUserId)) {
       Alert.alert("Lỗi", "ID người dùng không hợp lệ")
       return

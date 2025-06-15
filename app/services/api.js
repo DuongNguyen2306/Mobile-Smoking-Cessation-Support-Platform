@@ -55,8 +55,8 @@ export const testConnection = async () => {
 
   const testEndpoints = [
     "/chat/users", // Chat users endpoint
-    "/users/profile", // Profile endpoint
-    "/users", // Users endpoint
+    "/users/profile/me", // Profile endpoint - UPDATED
+    "/users/all", // Users endpoint - UPDATED
     "/blogs", // Blogs endpoint
   ]
 
@@ -85,18 +85,18 @@ export const testConnection = async () => {
   return false
 }
 
-// Auth endpoints
+// ===== AUTH ENDPOINTS =====
 export const login = (email, password) => API.post("/auth/login", { email, password })
 export const register = (name, email, password) => API.post("/auth/register", { name, email, password })
 export const logout = () => API.post("/auth/logout")
 
-// Blog endpoints
+// ===== BLOG ENDPOINTS =====
 export const fetchBlogs = () => API.get("/blogs")
 export const fetchBlogBySlug = (slug) => API.get(`/blogs/${slug}`)
 export const likeBlog = (blogId) => API.post(`/blogs/${blogId}/like`)
 export const addComment = (blogId, content) => API.post(`/blogs/${blogId}/comments`, { text: content })
 
-// Chat endpoints - Sử dụng đúng API từ documentation
+// ===== CHAT ENDPOINTS =====
 export const fetchUsers = () => {
   console.log("📡 Fetching users from /chat/users")
   return API.get("/chat/users")
@@ -133,28 +133,94 @@ export const deleteMessage = (messageId) => {
   return API.delete(`/chat/messages/${messageId}`)
 }
 
-// User endpoints
-export const getProfile = () => API.get("/users/profile")
-export const getUserProfile = (userId) => API.get(`/users/${userId}`)
-export const getAllUsers = () => API.get("/users/all")
-export const searchUsers = (query) => API.get("/users/search", { params: { query } })
-export const getUserById = (id) => API.get(`/users/${id}`)
-export const getUserStats = (id) => API.get(`/users/${id}/stats`)
-export const updateProfile = (data) => API.put("/users/update-profile", data)
-export const updateUserInfo = (data) => API.put("/users/update-profile", data)
-export const changePassword = (data) => API.put("/users/change-password", data)
-export const updateAvatar = (data) => API.put("/users/update-avatar", data)
-export const uploadAvatar = (formData) =>
-  API.put("/users/upload-avatar", formData, {
+// ===== USER ENDPOINTS - UPDATED TO MATCH API DOCUMENTATION =====
+
+// Get all users
+export const getAllUsers = () => {
+  console.log("📡 Getting all users from /users/all")
+  return API.get("/users/all")
+}
+
+// Search users
+export const searchUsers = (query) => {
+  console.log(`📡 Searching users from /users/search?query=${query}`)
+  return API.get("/users/search", { params: { query } })
+}
+
+// Get current user profile
+export const getProfile = () => {
+  console.log("📡 Getting current user profile from /users/profile/me")
+  return API.get("/users/profile/me")
+}
+
+// Get user profile (for viewing other user's profile)
+export const getUserProfile = (userId) => {
+  console.log(`📡 Requesting user profile for userId: ${userId}`);
+  return API.get(`/users/${userId}`); // Sử dụng endpoint động với userId
+};
+
+// Update user profile
+export const updateProfile = (data) => {
+  console.log("📡 Updating profile at /users/profile")
+  return API.put("/users/profile", data)
+}
+
+// Get user by ID
+export const getUserById = (id) => {
+  console.log(`📡 Getting user by ID from /users/${id}`)
+  return API.get(`/users/${id}`)
+}
+
+// Get user statistics
+export const getUserStats = (id) => {
+  console.log(`📡 Getting user stats from /users/${id}/stats`)
+  return API.get(`/users/${id}/stats`)
+}
+
+// Change password
+export const changePassword = (data) => {
+  console.log("📡 Changing password at /users/change-password")
+  return API.put("/users/change-password", data)
+}
+
+// Update avatar
+export const updateAvatar = (formData) => {
+  console.log("📡 Updating avatar at /users/update-avatar")
+  return API.put("/users/update-avatar", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   })
+}
 
-// Follow/Unfollow endpoints
-export const followUser = (id) => API.post(`/users/${id}/follow`)
-export const unfollowUser = (id) => API.post(`/users/${id}/unfollow`)
-export const getFollowers = (id, params) => API.get(`/users/${id}/followers`, { params })
-export const getFollowing = (id, params) => API.get(`/users/${id}/following`, { params })
-export const getMyFollowers = () => API.get("/users/my-followers")
-export const getMyFollowing = () => API.get("/users/my-following")
+// ===== FOLLOW/UNFOLLOW ENDPOINTS - UPDATED TO MATCH API DOCUMENTATION =====
+
+// Follow a user
+export const followUser = (id) => {
+  console.log(`📡 Following user /users/follow/${id}`)
+  return API.put(`/users/follow/${id}`)
+}
+
+// Unfollow a user
+export const unfollowUser = (id) => {
+  console.log(`📡 Unfollowing user /users/unfollow/${id}`)
+  return API.put(`/users/unfollow/${id}`)
+}
+
+// Get followers of a user
+export const getFollowers = (id, params) => {
+  console.log(`📡 Getting followers /users/followers/${id}`)
+  return API.get(`/users/followers/${id}`, { params })
+}
+
+// Get users followed by a user
+export const getFollowing = (id, params) => {
+  console.log(`📡 Getting following /users/following/${id}`)
+  return API.get(`/users/following/${id}`, { params })
+}
+
+// ===== DEPRECATED/LEGACY ENDPOINTS (for backward compatibility) =====
+export const updateUserInfo = (data) => updateProfile(data) // Alias
+export const getMyFollowers = () => API.get("/users/my-followers") // If this endpoint exists
+export const getMyFollowing = () => API.get("/users/my-following") // If this endpoint exists
+export const uploadAvatar = (formData) => updateAvatar(formData) // Alias
 
 export default API
