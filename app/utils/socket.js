@@ -1,6 +1,6 @@
 import io from "socket.io-client"
 
-const SOCKET_URL = "http://192.168.0.197:5000"
+const SOCKET_URL = "http://10.87.64.155:5000"
 
 class SocketService {
   socket = null

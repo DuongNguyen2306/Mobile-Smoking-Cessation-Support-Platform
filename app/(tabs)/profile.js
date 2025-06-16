@@ -1,10 +1,8 @@
-"use client"
-
-import { Ionicons } from "@expo/vector-icons"
-import AsyncStorage from "@react-native-async-storage/async-storage"
-import { LinearGradient } from "expo-linear-gradient"
-import { useRouter } from "expo-router"
-import { useCallback, useEffect, useState } from "react"
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -16,161 +14,139 @@ import {
   Text,
   TouchableOpacity,
   View,
-} from "react-native"
-import { getFollowers, getFollowing, getProfile, logout } from "../services/api"
+} from "react-native";
+import { getFollowers, getFollowing, getProfile, logout } from "../services/api";
 
 export default function ProfileScreen() {
-  const router = useRouter()
-  const [user, setUser] = useState(null)
-  const [followersCount, setFollowersCount] = useState(0)
-  const [followingCount, setFollowingCount] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState(null)
+  const router = useRouter();
+  const [user, setUser] = useState(null);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
 
   const loadFollowCounts = useCallback(async (userId) => {
     try {
-      console.log("🔍 Loading follow counts for userId:", userId)
+      console.log("🔍 Loading follow counts for userId:", userId);
       const [followersRes, followingRes] = await Promise.allSettled([
         getFollowers(userId),
         getFollowing(userId),
-      ])
+      ]);
 
-      // Handle followers
       if (followersRes.status === "fulfilled") {
-        const followersData = followersRes.value.data
-        let count = 0
-        if (followersData?.data?.followers) {
-          count = Array.isArray(followersData.data.followers) ? followersData.data.followers.length : 0
-        } else if (followersData?.followers) {
-          count = Array.isArray(followersData.followers) ? followersData.followers.length : 0
-        } else if (followersData?.data && Array.isArray(followersData.data)) {
-          count = followersData.data.length
-        }
-        console.log("Followers count calculated:", count)
-        setFollowersCount(count)
+        const followersData = followersRes.value.data;
+        setFollowersCount(
+          (followersData?.data?.followers?.length || followersData?.followers?.length || followersData?.data?.length) || 0
+        );
       }
-
-      // Handle following
       if (followingRes.status === "fulfilled") {
-        const followingData = followingRes.value.data
-        let count = 0
-        if (followingData?.data?.following) {
-          count = Array.isArray(followingData.data.following) ? followingData.data.following.length : 0
-        } else if (followingData?.following) {
-          count = Array.isArray(followingData.following) ? followingData.following.length : 0
-        } else if (followingData?.data && Array.isArray(followingData.data)) {
-          count = followingData.data.length
-        }
-        console.log("Following count calculated:", count)
-        setFollowingCount(count)
+        const followingData = followingRes.value.data;
+        setFollowingCount(
+          (followingData?.data?.following?.length || followingData?.following?.length || followingData?.data?.length) || 0
+        );
       }
     } catch (err) {
-      console.error("❌ Lỗi khi lấy follow:", err)
+      console.error("❌ Error loading follow counts:", err);
+      setError("Không thể tải số liệu theo dõi.");
     }
-  }, [])
+  }, []);
 
   const loadUserProfile = useCallback(async () => {
     try {
-      setError(null)
-      const token = await AsyncStorage.getItem("token")
+      setError(null);
+      const token = await AsyncStorage.getItem("token");
       if (!token) {
         Alert.alert("Thông báo", "Vui lòng đăng nhập để tiếp tục", [
           { text: "OK", onPress: () => router.replace("/(auth)/login") },
-        ])
-        return
+        ]);
+        return;
       }
 
-      console.log("🔍 Loading user profile...")
-      const response = await getProfile()
+      console.log("🔍 Loading user profile...");
+      const response = await getProfile();
 
       if (response.status === 200 && response.data) {
-        const userData = response.data.data?.user || response.data.user || response.data
-        console.log("✅ Profile loaded:", userData)
-        setUser(userData)
+        const userData = response.data.data?.user || response.data.user || response.data;
+        console.log("✅ Profile loaded:", userData);
+        setUser(userData);
 
-        // Load follow counts if we have user ID
         if (userData.id) {
-          await loadFollowCounts(userData.id)
+          await loadFollowCounts(userData.id);
         }
       } else {
-        throw new Error("Invalid response format")
+        throw new Error("Invalid response format");
       }
     } catch (err) {
-      console.error("❌ Error loading profile:", err)
-      const errorMessage = err.response?.data?.message || err.message || "Không thể tải thông tin profile"
-      setError(errorMessage)
+      console.error("❌ Error loading profile:", err);
+      const errorMessage =
+        err.response?.data?.message || err.message || "Không thể tải thông tin profile";
+      setError(errorMessage);
 
       if (err.response?.status === 401) {
         Alert.alert("Phiên đăng nhập hết hạn", "Vui lòng đăng nhập lại", [
           { text: "OK", onPress: () => router.replace("/(auth)/login") },
-        ])
+        ]);
       }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-  }, [router, loadFollowCounts])
+  }, [router, loadFollowCounts]);
 
   useEffect(() => {
-    const initLoad = async () => {
-      setLoading(true)
-      await loadUserProfile()
-      setLoading(false)
-    }
-    initLoad()
-  }, [loadUserProfile])
+    loadUserProfile();
+  }, [loadUserProfile]);
 
   const onRefresh = useCallback(async () => {
-    setRefreshing(true)
-    await loadUserProfile()
-    setRefreshing(false)
-  }, [loadUserProfile])
+    setRefreshing(true);
+    await loadUserProfile();
+  }, [loadUserProfile]);
 
   const handleLogout = async () => {
     Alert.alert("Xác nhận đăng xuất", "Bạn có chắc chắn muốn đăng xuất khỏi ứng dụng?", [
-      {
-        text: "Hủy",
-        style: "cancel",
-      },
+      { text: "Hủy", style: "cancel" },
       {
         text: "Đăng xuất",
         style: "destructive",
         onPress: async () => {
           try {
-            await logout()
-            await AsyncStorage.removeItem("token")
-            await AsyncStorage.removeItem("user")
-            router.replace("/(auth)/login")
+            await logout();
+            await AsyncStorage.removeItem("token");
+            await AsyncStorage.removeItem("user");
+            router.replace("/(auth)/login");
           } catch (err) {
-            console.error("Lỗi đăng xuất:", err)
-            await AsyncStorage.removeItem("token")
-            await AsyncStorage.removeItem("user")
-            router.replace("/(auth)/login")
+            console.error("Lỗi đăng xuất:", err);
+            await AsyncStorage.removeItem("token");
+            await AsyncStorage.removeItem("user");
+            router.replace("/(auth)/login");
           }
         },
       },
-    ])
-  }
+    ]);
+  };
 
   const handleViewFollowList = () => {
     if (user?.id) {
       router.push({
         pathname: "/followList",
         params: { userId: user.id },
-      })
+      });
     }
-  }
+  };
 
   const handleEditProfile = () => {
-    Alert.alert("Thông báo", "Tính năng chỉnh sửa profile sẽ được cập nhật sớm!")
-  }
+    Alert.alert("Thông báo", "Tính năng chỉnh sửa profile sẽ được cập nhật sớm!");
+  };
 
   const formatDate = (dateString) => {
-    if (!dateString) return "Chưa cập nhật"
+    if (!dateString) return "Chưa cập nhật";
     return new Date(dateString).toLocaleDateString("vi-VN", {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
-    })
-  }
+    });
+  };
 
   if (loading) {
     return (
@@ -180,7 +156,7 @@ export default function ProfileScreen() {
           <Text style={styles.loadingText}>Đang tải thông tin...</Text>
         </LinearGradient>
       </View>
-    )
+    );
   }
 
   if (error) {
@@ -191,15 +167,14 @@ export default function ProfileScreen() {
         <TouchableOpacity
           style={styles.retryButton}
           onPress={() => {
-            setError(null)
-            setLoading(true)
-            loadUserProfile().finally(() => setLoading(false))
+            setError(null);
+            loadUserProfile();
           }}
         >
           <Text style={styles.retryButtonText}>Thử lại</Text>
         </TouchableOpacity>
       </View>
-    )
+    );
   }
 
   if (!user) {
@@ -208,7 +183,7 @@ export default function ProfileScreen() {
         <Ionicons name="person-outline" size={64} color="#FF5722" />
         <Text style={styles.errorText}>Không tìm thấy thông tin người dùng</Text>
       </View>
-    )
+    );
   }
 
   return (
@@ -378,7 +353,7 @@ export default function ProfileScreen() {
         </View>
       </ScrollView>
     </SafeAreaView>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -663,4 +638,4 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginLeft: 8,
   },
-})
+});

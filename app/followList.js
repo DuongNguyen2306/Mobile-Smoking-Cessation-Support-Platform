@@ -5,22 +5,22 @@ import { LinearGradient } from "expo-linear-gradient"
 import { useLocalSearchParams, useRouter } from "expo-router"
 import { useEffect, useState } from "react"
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Image,
-    SafeAreaView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native"
 import { followUser, getFollowers, getFollowing, unfollowUser } from "./services/api"
 
 export default function FollowListScreen() {
   const router = useRouter()
-  const { userId } = useLocalSearchParams()
-  const [activeTab, setActiveTab] = useState("followers") // "followers" or "following"
+  const { userId, type } = useLocalSearchParams()
+  const [activeTab, setActiveTab] = useState(type === "followers" ? "followers" : "following")
   const [followers, setFollowers] = useState([])
   const [following, setFollowing] = useState([])
   const [loading, setLoading] = useState(true)
@@ -39,12 +39,12 @@ export default function FollowListScreen() {
 
       if (activeTab === "followers") {
         const response = await getFollowers(userId, { page: 1, limit: 1000 })
-        const data = response.data?.data?.items || response.data?.data || response.data?.items || response.data || []
+        const data = response.data?.data?.following || response.data?.following || []
         console.log("👥 Followers data:", data)
         setFollowers(Array.isArray(data) ? data : [])
       } else {
         const response = await getFollowing(userId, { page: 1, limit: 1000 })
-        const data = response.data?.data?.items || response.data?.data || response.data?.items || response.data || []
+        const data = response.data?.data?.following || response.data?.following || []
         console.log("👤 Following data:", data)
         setFollowing(Array.isArray(data) ? data : [])
       }
@@ -67,7 +67,6 @@ export default function FollowListScreen() {
         Alert.alert("Thành công", "Đã theo dõi")
       }
 
-      // Refresh data after follow/unfollow
       await loadFollowData()
     } catch (error) {
       console.error("❌ Error toggling follow:", error)
@@ -77,12 +76,13 @@ export default function FollowListScreen() {
 
   const renderUserItem = ({ item }) => {
     const user = item.follower || item.following || item.user || item
+    const isFollowing = following.some(f => f._id === user._id)
 
     return (
       <View style={styles.userItem}>
         <LinearGradient colors={["#FFFFFF", "#F8FFF8"]} style={styles.userGradient}>
           <Image
-            source={{ uri: user.avatar || "https://via.placeholder.com/50" }}
+            source={{ uri: user.profilePicture || "https://via.placeholder.com/50" }}
             style={styles.userAvatar}
             resizeMode="cover"
           />
@@ -93,11 +93,11 @@ export default function FollowListScreen() {
           </View>
 
           <TouchableOpacity
-            style={[styles.followButton, user.isFollowing && styles.followingButton]}
-            onPress={() => handleFollowToggle(user.id, user.isFollowing)}
+            style={[styles.followButton, isFollowing && styles.followingButton]}
+            onPress={() => handleFollowToggle(user._id, isFollowing)}
           >
-            <Text style={[styles.followButtonText, user.isFollowing && styles.followingButtonText]}>
-              {user.isFollowing ? "Đang theo dõi" : "Theo dõi"}
+            <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
+              {isFollowing ? "Đang theo dõi" : "Theo dõi"}
             </Text>
           </TouchableOpacity>
         </LinearGradient>
@@ -151,10 +151,7 @@ export default function FollowListScreen() {
         <FlatList
           data={currentData}
           renderItem={renderUserItem}
-          keyExtractor={(item, index) => {
-            const user = item.follower || item.following || item.user || item
-            return user.id?.toString() || index.toString()
-          }}
+          keyExtractor={(item, index) => item._id?.toString() || index.toString()}
           contentContainerStyle={styles.listContainer}
           showsVerticalScrollIndicator={false}
           refreshing={refreshing}
