@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage"
 import axios from "axios"
 
 const API = axios.create({
-  baseURL: "https://be-smoking-cessation-support-platform-w1tg.onrender.com", // Đảm bảo IP này đúng
+  baseURL: "https://be-smoking-cessation-support-platform-w1tg.onrender.com",
   withCredentials: true,
   timeout: 15000,
 })
@@ -87,7 +87,18 @@ export const testConnection = async () => {
 
 // ===== AUTH ENDPOINTS =====
 export const login = (email, password) => API.post("/auth/login", { email, password })
-export const register = (name, email, password) => API.post("/auth/register", { name, email, password })
+
+// Updated register function to match backend API requirements
+export const register = (userName, email, password, confirmPassword) => {
+  console.log("📤 Register payload:", { userName, email, password, confirmPassword })
+  return API.post("/auth/register", {
+    userName,
+    email,
+    password,
+    confirmPassword,
+  })
+}
+
 export const logout = () => API.post("/auth/logout")
 
 // ===== BLOG ENDPOINTS =====
@@ -155,9 +166,9 @@ export const getProfile = () => {
 
 // Get user profile (for viewing other user's profile)
 export const getUserProfile = (userId) => {
-  console.log(`📡 Requesting user profile for userId: ${userId}`);
-  return API.get(`/users/${userId}`); // Sử dụng endpoint động với userId
-};
+  console.log(`📡 Requesting user profile for userId: ${userId}`)
+  return API.get(`/users/${userId}`) // Sử dụng endpoint động với userId
+}
 
 // Update user profile
 export const updateProfile = (data) => {
@@ -215,6 +226,81 @@ export const getFollowers = (id, params) => {
 export const getFollowing = (id, params) => {
   console.log(`📡 Getting following /users/following/${id}`)
   return API.get(`/users/following/${id}`, { params })
+}
+
+// ===== QUIT PLANS ENDPOINTS =====
+
+// Get all quit plans with filtering and pagination
+export const getQuitPlans = (params = {}) => {
+  console.log("📡 Getting quit plans from /plans/quitplans")
+  console.log("📤 Query params:", params)
+  return API.get("/plans/quitplans", { params })
+}
+
+// Get quit plan by ID
+export const getQuitPlanById = (planId) => {
+  console.log(`📡 Getting quit plan by ID from /plans/quitplans/${planId}`)
+  return API.get(`/plans/quitplans/${planId}`)
+}
+
+// Create new quit plan
+export const createQuitPlan = (data) => {
+  console.log("📡 Creating quit plan at /plans/quitplans")
+  console.log("📤 Plan data:", data)
+  return API.post("/plans/quitplans", data)
+}
+
+// Update quit plan
+export const updateQuitPlan = (planId, data) => {
+  console.log(`📡 Updating quit plan at /plans/quitplans/${planId}`)
+  console.log("📤 Update data:", data)
+  return API.put(`/plans/quitplans/${planId}`, data)
+}
+
+// Delete quit plan
+export const deleteQuitPlan = (planId) => {
+  console.log(`📡 Deleting quit plan /plans/quitplans/${planId}`)
+  return API.delete(`/plans/quitplans/${planId}`)
+}
+
+// Update quit plan status
+export const updateQuitPlanStatus = (planId, status) => {
+  console.log(`📡 Updating quit plan status /plans/quitplans/${planId}/status`)
+  console.log("📤 New status:", status)
+  return API.patch(`/plans/quitplans/${planId}/status`, { status })
+}
+
+// Get quit plan templates
+export const getQuitPlanTemplates = (params = {}) => {
+  console.log("📡 Getting quit plan templates")
+  return API.get("/plans/quitplans", { params: { ...params, status: "template" } })
+}
+
+// Get user's quit plans
+export const getUserQuitPlans = (userId, params = {}) => {
+  console.log(`📡 Getting quit plans for user ${userId}`)
+  return API.get("/plans/quitplans", { params: { ...params, userId } })
+}
+
+// Get coach's quit plans
+export const getCoachQuitPlans = (coachId, params = {}) => {
+  console.log(`📡 Getting quit plans for coach ${coachId}`)
+  return API.get("/plans/quitplans", { params: { ...params, coachId } })
+}
+
+// ===== PLAN REGISTRATION ENDPOINTS =====
+
+// Select and activate a template quit plan
+export const selectQuitPlan = (quitPlanId) => {
+  console.log(`📡 Selecting quit plan template /plans/quitplans/select`)
+  console.log(`📤 Plan ID:`, quitPlanId)
+  return API.post("/plans/quitplans/select", { quitPlanId })
+}
+
+// Get current ongoing quit plan for authenticated user
+export const getCurrentQuitPlan = () => {
+  console.log("📡 Getting current quit plan from /plans/quitplans/current")
+  return API.get("/plans/quitplans/current")
 }
 
 // ===== DEPRECATED/LEGACY ENDPOINTS (for backward compatibility) =====

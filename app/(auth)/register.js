@@ -53,10 +53,16 @@ export default function RegisterScreen() {
 
     setLoading(true)
     try {
-      const res = await register(name, email, password)
-      Alert.alert("Đăng ký thành công", "Chào mừng bạn đến với hành trình bỏ thuốc lá!", [
-        { text: "Đăng nhập ngay", onPress: () => router.replace("/(auth)/login") },
-      ])
+      // Updated to pass confirmPassword as 4th parameter
+      const res = await register(name, email, password, confirmPassword)
+      // Navigate to success screen instead of showing alert
+      router.push({
+        pathname: "/register-success",
+        params: {
+          userName: name,
+          userEmail: email,
+        },
+      })
     } catch (err) {
       console.log("Lỗi đăng ký:", err)
       Alert.alert("Lỗi", err.response?.data?.message || "Đăng ký thất bại")
