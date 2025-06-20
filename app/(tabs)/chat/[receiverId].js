@@ -8,6 +8,7 @@ import { useLocalSearchParams, useRouter } from "expo-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Alert,
+  Animated,
   Dimensions,
   FlatList,
   Image,
@@ -41,8 +42,37 @@ export default function ChatWithUser() {
   const [socketConnected, setSocketConnected] = useState(false)
   const flatListRef = useRef(null)
   const typingTimeoutRef = useRef(null)
+  const typingAnimation = useRef(new Animated.Value(0)).current
 
   console.log("💬 ChatWithUser - receiverId:", receiverId)
+
+  // Hàm quay về chat screen
+  const handleBackToChat = () => {
+    console.log("🔙 Navigating back to chat screen")
+    router.replace("/(tabs)/chat") // Hoặc router.push("/(tabs)/chat") tùy vào cấu trúc routing của bạn
+  }
+
+  // Typing animation
+  useEffect(() => {
+    if (isReceiverTyping) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(typingAnimation, {
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+          Animated.timing(typingAnimation, {
+            toValue: 0,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start()
+    } else {
+      typingAnimation.setValue(0)
+    }
+  }, [isReceiverTyping])
 
   const initializeSocket = useCallback(async () => {
     try {
@@ -130,7 +160,9 @@ export default function ChatWithUser() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.5,
+      quality: 0.7,
+      allowsEditing: true,
+      aspect: [4, 3],
     })
     if (!result.canceled && result.assets[0].uri) {
       setSelectedImage(result.assets[0])
@@ -138,61 +170,61 @@ export default function ChatWithUser() {
   }
 
   const handleSendMessage = async () => {
-  if (!message.trim() && !selectedImage) return
+    if (!message.trim() && !selectedImage) return
 
-  const tempMessage = {
-    _id: `temp_${Date.now()}`,
-    text: message,
-    image: selectedImage ? selectedImage.uri : null,
-    senderId: { _id: myId },
-    receiverId: { _id: receiverId },
-    createdAt: new Date().toISOString(),
-    isTemp: true,
-  }
-
-  setMessages((prev) => [...prev, tempMessage])
-  setMessage("")
-  setSelectedImage(null)
-
-  setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
-
-  try {
-    console.log("📤 Sending message to:", receiverId)
-    const payload = {
-      text: tempMessage.text,
-      image: tempMessage.image,
+    const tempMessage = {
+      _id: `temp_${Date.now()}`,
+      text: message,
+      image: selectedImage ? selectedImage.uri : null,
+      senderId: { _id: myId },
+      receiverId: { _id: receiverId },
+      createdAt: new Date().toISOString(),
+      isTemp: true,
     }
 
-    const res = await sendMessage(receiverId, payload)
-    const newMessage = res.data.data
-    console.log("✅ Message sent via API:", newMessage)
+    setMessages((prev) => [...prev, tempMessage])
+    setMessage("")
+    setSelectedImage(null)
 
-    setMessages((prev) =>
-      prev
-        .map((msg) => (msg._id === tempMessage._id ? newMessage : msg))
-        .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
-    )
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
 
-    if (socketService && socketService.isConnected()) {
-      const socketData = {
-        ...newMessage,
-        senderId: { _id: myId },
-        receiverId: { _id: receiverId },
+    try {
+      console.log("📤 Sending message to:", receiverId)
+      const payload = {
+        text: tempMessage.text,
+        image: tempMessage.image,
       }
-      socketService.emit("newMessage", socketData)
-      console.log("✅ Message emitted via socket")
 
-      // ✅ THÊM VÀO ĐÂY để cập nhật danh sách chat bên ngoài
-      if (typeof window !== "undefined" && typeof window.refreshConversations === "function") {
-        window.refreshConversations()
+      const res = await sendMessage(receiverId, payload)
+      const newMessage = res.data.data
+      console.log("✅ Message sent via API:", newMessage)
+
+      setMessages((prev) =>
+        prev
+          .map((msg) => (msg._id === tempMessage._id ? newMessage : msg))
+          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+      )
+
+      if (socketService && socketService.isConnected()) {
+        const socketData = {
+          ...newMessage,
+          senderId: { _id: myId },
+          receiverId: { _id: receiverId },
+        }
+        socketService.emit("newMessage", socketData)
+        console.log("✅ Message emitted via socket")
+
+        // Cập nhật danh sách chat bên ngoài
+        if (typeof window !== "undefined" && typeof window.refreshConversations === "function") {
+          window.refreshConversations()
+        }
       }
+    } catch (err) {
+      console.log("❌ Error sending message:", err.response ? err.response.data : err.message)
+      setMessages((prev) => prev.filter((msg) => msg._id !== tempMessage._id))
+      Alert.alert("Lỗi", "Không thể gửi tin nhắn.")
     }
-  } catch (err) {
-    console.log("❌ Error sending message:", err.response ? err.response.data : err.message)
-    setMessages((prev) => prev.filter((msg) => msg._id !== tempMessage._id))
-    Alert.alert("Lỗi", "Không thể gửi tin nhắn.")
   }
-}
 
   const handleTyping = (text) => {
     setMessage(text)
@@ -317,6 +349,9 @@ export default function ChatWithUser() {
     const diffMs = now - new Date(date)
     const diffMins = Math.floor(diffMs / 60000)
     const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+    
+    if (diffDays >= 1) return `${diffDays} ngày`
     if (diffHours >= 1) return `${diffHours} giờ`
     if (diffMins >= 1) return `${diffMins} phút`
     return "vừa xong"
@@ -359,7 +394,7 @@ export default function ChatWithUser() {
             )}
             {item.isTemp && (
               <View style={styles.tempIndicator}>
-                <Ionicons name="time-outline" size={12} color={isMyMessage ? "#FFFFFF" : "#666"} />
+                <Ionicons name="time-outline" size={12} color={isMyMessage ? "rgba(255,255,255,0.7)" : "#999"} />
               </View>
             )}
           </LinearGradient>
@@ -372,9 +407,9 @@ export default function ChatWithUser() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <LinearGradient colors={["#2E7D32", "#4CAF50"]} style={styles.headerGradient}>
+      <LinearGradient colors={["#2E7D32", "#4CAF50", "#66BB6A"]} style={styles.headerGradient}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBackToChat}>
             <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
           </TouchableOpacity>
 
@@ -384,10 +419,10 @@ export default function ChatWithUser() {
                 <Image source={{ uri: receiver.profilePicture }} style={styles.avatar} />
               ) : (
                 <View style={styles.avatarPlaceholder}>
-                  <Ionicons name="person" size={20} color="#4CAF50" />
+                  <Ionicons name="person" size={24} color="#4CAF50" />
                 </View>
               )}
-              <View style={[styles.statusIndicator, { backgroundColor: isReceiverOnline ? "#4CAF50" : "#BDBDBD" }]} />
+              {isReceiverOnline && <View style={styles.onlineIndicator} />}
             </View>
 
             <View style={styles.userInfo}>
@@ -399,17 +434,22 @@ export default function ChatWithUser() {
                   ? "Đang nhập..."
                   : isReceiverOnline
                     ? "Đang hoạt động"
-                    : `Hoạt động ${getTimeAgo(lastOfflineTime)} trước`}
+                    : lastOfflineTime
+                    ? `Hoạt động ${getTimeAgo(lastOfflineTime)} trước`
+                    : "Không hoạt động"}
               </Text>
             </View>
           </View>
 
           <View style={styles.headerActions}>
-            <View style={[styles.connectionIndicator, { backgroundColor: socketConnected ? "#4CAF50" : "#FF5722" }]}>
-              <Ionicons name={socketConnected ? "wifi" : "wifi-off"} size={16} color="#FFFFFF" />
-            </View>
-            <TouchableOpacity style={styles.callButton}>
-              <Ionicons name="videocam" size={24} color="#FFFFFF" />
+            <TouchableOpacity style={styles.actionButton}>
+              <Ionicons name="call" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionButton}>
+              <Ionicons name="videocam" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionButton}>
+              <Ionicons name="ellipsis-vertical" size={20} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
         </View>
@@ -420,11 +460,12 @@ export default function ChatWithUser() {
           {messages.length === 0 ? (
             <View style={styles.emptyContainer}>
               <View style={styles.emptyIconContainer}>
-                <Ionicons name="chatbubble-outline" size={60} color="#CCCCCC" />
+                <Ionicons name="chatbubble-outline" size={64} color="#A5D6A7" />
               </View>
               <Text style={styles.emptyTitle}>Bắt đầu cuộc trò chuyện!</Text>
-              <Text style={styles.emptyText}>Hãy gửi tin nhắn đầu tiên để bắt đầu.</Text>
+              <Text style={styles.emptyText}>Hãy gửi tin nhắn đầu tiên để bắt đầu trò chuyện.</Text>
               <TouchableOpacity style={styles.startChatButton} onPress={() => setMessage("Xin chào! 👋")}>
+                <Ionicons name="hand-right" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
                 <Text style={styles.startChatText}>Chào hỏi</Text>
               </TouchableOpacity>
             </View>
@@ -445,9 +486,39 @@ export default function ChatWithUser() {
             <View style={styles.typingContainer}>
               <View style={styles.typingBubble}>
                 <View style={styles.typingDots}>
-                  <View style={[styles.dot, styles.dot1]} />
-                  <View style={[styles.dot, styles.dot2]} />
-                  <View style={[styles.dot, styles.dot3]} />
+                  <Animated.View 
+                    style={[
+                      styles.dot, 
+                      { 
+                        opacity: typingAnimation.interpolate({
+                          inputRange: [0, 0.5, 1],
+                          outputRange: [0.3, 1, 0.3],
+                        })
+                      }
+                    ]} 
+                  />
+                  <Animated.View 
+                    style={[
+                      styles.dot, 
+                      { 
+                        opacity: typingAnimation.interpolate({
+                          inputRange: [0, 0.2, 0.7, 1],
+                          outputRange: [0.3, 0.3, 1, 0.3],
+                        })
+                      }
+                    ]} 
+                  />
+                  <Animated.View 
+                    style={[
+                      styles.dot, 
+                      { 
+                        opacity: typingAnimation.interpolate({
+                          inputRange: [0, 0.4, 0.9, 1],
+                          outputRange: [0.3, 0.3, 0.3, 1],
+                        })
+                      }
+                    ]} 
+                  />
                 </View>
               </View>
             </View>
@@ -458,8 +529,14 @@ export default function ChatWithUser() {
           <View style={styles.selectedImageContainer}>
             <LinearGradient colors={["#E8F5E8", "#F1F8E9"]} style={styles.selectedImageGradient}>
               <Image source={{ uri: selectedImage.uri }} style={styles.selectedImage} />
+              <View style={styles.selectedImageInfo}>
+                <Text style={styles.selectedImageText}>Ảnh đã chọn</Text>
+                <Text style={styles.selectedImageSize}>
+                  {selectedImage.width}x{selectedImage.height}
+                </Text>
+              </View>
               <TouchableOpacity style={styles.removeImageButton} onPress={() => setSelectedImage(null)}>
-                <Ionicons name="close" size={16} color="#FFFFFF" />
+                <Ionicons name="close" size={18} color="#FFFFFF" />
               </TouchableOpacity>
             </LinearGradient>
           </View>
@@ -468,14 +545,14 @@ export default function ChatWithUser() {
         <LinearGradient colors={["#FFFFFF", "#F8FFF8"]} style={styles.inputGradient}>
           <View style={styles.inputContainer}>
             <TouchableOpacity style={styles.imageButton} onPress={handleImageSelect}>
-              <Ionicons name="camera" size={24} color="#4CAF50" />
+              <Ionicons name="camera" size={22} color="#4CAF50" />
             </TouchableOpacity>
 
             <View style={styles.textInputContainer}>
               <TextInput
                 style={styles.input}
                 placeholder="Nhập tin nhắn..."
-                placeholderTextColor="#999"
+                placeholderTextColor="#A5D6A7"
                 value={message}
                 onChangeText={handleTyping}
                 multiline
@@ -488,7 +565,7 @@ export default function ChatWithUser() {
               style={[styles.sendButton, (message.trim() || selectedImage) && styles.sendButtonActive]}
               disabled={!message.trim() && !selectedImage}
             >
-              <Ionicons name="send" size={20} color="#FFFFFF" />
+              <Ionicons name="send" size={18} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
         </LinearGradient>
@@ -500,10 +577,15 @@ export default function ChatWithUser() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8FFF8",
+    backgroundColor: "#F1F8E9",
   },
   headerGradient: {
     paddingTop: 10,
+    shadowColor: "#2E7D32",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   header: {
     flexDirection: "row",
@@ -519,6 +601,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   headerInfo: {
     flex: 1,
@@ -530,62 +617,67 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 2,
     borderColor: "#FFFFFF",
   },
   avatarPlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "rgba(255, 255, 255, 0.3)",
     justifyContent: "center",
     alignItems: "center",
-  },
-  statusIndicator: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
     borderWidth: 2,
     borderColor: "#FFFFFF",
+  },
+  onlineIndicator: {
+    position: "absolute",
+    bottom: 2,
+    right: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#4CAF50",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+    shadowColor: "#4CAF50",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    elevation: 4,
   },
   userInfo: {
     flex: 1,
   },
   headerTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "bold",
     color: "#FFFFFF",
     marginBottom: 2,
+    textShadowColor: "rgba(0, 0, 0, 0.2)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   headerSubtitle: {
-    fontSize: 12,
-    color: "rgba(255, 255, 255, 0.8)",
+    fontSize: 13,
+    color: "rgba(255, 255, 255, 0.9)",
+    fontWeight: "500",
   },
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
   },
-  connectionIndicator: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 8,
-  },
-  callButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  actionButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: "rgba(255, 255, 255, 0.2)",
     justifyContent: "center",
     alignItems: "center",
+    marginLeft: 8,
   },
   chatContainer: {
     flex: 1,
@@ -609,11 +701,17 @@ const styles = StyleSheet.create({
   },
   timeLabel: {
     fontSize: 12,
-    color: "#888",
-    backgroundColor: "rgba(255, 255, 255, 0.8)",
+    color: "#66BB6A",
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
     paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingVertical: 6,
     borderRadius: 12,
+    fontWeight: "500",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   messageWrapper: {
     maxWidth: "80%",
@@ -625,20 +723,20 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   messageItem: {
-    borderRadius: 16,
-    padding: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
+    borderRadius: 18,
+    padding: 14,
+    shadowColor: "#2E7D32",
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowRadius: 4,
+    elevation: 3,
     position: "relative",
   },
   myMessage: {
-    borderBottomRightRadius: 4,
+    borderBottomRightRadius: 6,
   },
   otherMessage: {
-    borderBottomLeftRadius: 4,
+    borderBottomLeftRadius: 6,
     borderWidth: 1,
     borderColor: "#E8F5E8",
   },
@@ -647,24 +745,26 @@ const styles = StyleSheet.create({
   },
   messageText: {
     fontSize: 16,
-    lineHeight: 20,
+    lineHeight: 22,
   },
   myMessageText: {
     color: "#FFFFFF",
+    fontWeight: "500",
   },
   otherMessageText: {
-    color: "#333333",
+    color: "#2E7D32",
+    fontWeight: "500",
   },
   messageImage: {
-    width: 200,
-    height: 150,
-    borderRadius: 8,
+    width: 220,
+    height: 160,
+    borderRadius: 12,
     marginBottom: 8,
   },
   tempIndicator: {
     position: "absolute",
-    bottom: 4,
-    right: 4,
+    bottom: 6,
+    right: 6,
   },
   typingContainer: {
     paddingHorizontal: 16,
@@ -672,48 +772,77 @@ const styles = StyleSheet.create({
   },
   typingBubble: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    borderBottomLeftRadius: 4,
-    padding: 12,
+    borderRadius: 18,
+    borderBottomLeftRadius: 6,
+    padding: 16,
     alignSelf: "flex-start",
     maxWidth: "80%",
     borderWidth: 1,
     borderColor: "#E8F5E8",
+    shadowColor: "#2E7D32",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   typingDots: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
   },
   dot: {
     width: 8,
     height: 8,
     borderRadius: 4,
     backgroundColor: "#4CAF50",
-    marginHorizontal: 2,
+    marginHorizontal: 3,
   },
   selectedImageContainer: {
     margin: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: "hidden",
+    shadowColor: "#2E7D32",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   selectedImageGradient: {
-    padding: 12,
+    padding: 16,
     flexDirection: "row",
     alignItems: "center",
   },
   selectedImage: {
     width: 60,
     height: 60,
-    borderRadius: 8,
+    borderRadius: 12,
     marginRight: 12,
+  },
+  selectedImageInfo: {
+    flex: 1,
+  },
+  selectedImageText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#2E7D32",
+    marginBottom: 4,
+  },
+  selectedImageSize: {
+    fontSize: 12,
+    color: "#66BB6A",
   },
   removeImageButton: {
     backgroundColor: "#FF5722",
-    borderRadius: 12,
-    width: 24,
-    height: 24,
+    borderRadius: 15,
+    width: 30,
+    height: 30,
     justifyContent: "center",
     alignItems: "center",
+    shadowColor: "#FF5722",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
   inputGradient: {
     borderTopWidth: 1,
@@ -726,40 +855,57 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   imageButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#E8F5E8",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
+    shadowColor: "#2E7D32",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   textInputContainer: {
     flex: 1,
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: "#E8F5E8",
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    maxHeight: 100,
+    paddingVertical: 10,
+    maxHeight: 120,
+    shadowColor: "#2E7D32",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   input: {
     fontSize: 16,
-    color: "#333",
+    color: "#2E7D32",
     textAlignVertical: "center",
+    fontWeight: "500",
   },
   sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#BDBDBD",
     justifyContent: "center",
     alignItems: "center",
     marginLeft: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   sendButtonActive: {
     backgroundColor: "#4CAF50",
+    shadowColor: "#4CAF50",
   },
   emptyContainer: {
     flex: 1,
@@ -768,32 +914,45 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
   },
   emptyIconContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: "#F0F0F0",
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "#E8F5E8",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 24,
+    shadowColor: "#2E7D32",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   emptyTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "bold",
-    color: "#666",
+    color: "#2E7D32",
     marginBottom: 12,
+    textAlign: "center",
   },
   emptyText: {
-    fontSize: 14,
-    color: "#888",
+    fontSize: 16,
+    color: "#66BB6A",
     textAlign: "center",
-    marginBottom: 24,
-    lineHeight: 20,
+    marginBottom: 32,
+    lineHeight: 22,
   },
   startChatButton: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: "#4CAF50",
     paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 20,
+    paddingVertical: 14,
+    borderRadius: 25,
+    shadowColor: "#4CAF50",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   startChatText: {
     color: "#FFFFFF",

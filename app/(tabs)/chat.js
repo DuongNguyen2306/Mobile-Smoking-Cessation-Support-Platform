@@ -8,30 +8,36 @@ import { useCallback, useEffect, useState } from "react"
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
   Image,
   RefreshControl,
   SafeAreaView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native"
 import { fetchConversations, fetchMessages, fetchUsers, getUnreadCount, testConnection } from "../services/api"
 import { socketService } from "../utils/socket"
-import { formatLastSeen, formatMessageTime, isUserOnline } from "../utils/timeUtils"
+import { formatMessageTime, isUserOnline } from "../utils/timeUtils"
 
 const __DEV__ = process.env.NODE_ENV === "development"
 
 export default function ChatScreen() {
   const router = useRouter()
   const [conversations, setConversations] = useState([])
+  const [filteredConversations, setFilteredConversations] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [myId, setMyId] = useState(null)
   const [onlineUsers, setOnlineUsers] = useState(new Map())
   const [connectionInfo, setConnectionInfo] = useState({ status: "disconnected" })
   const [unreadCount, setUnreadCount] = useState(0)
+  const [searchVisible, setSearchVisible] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [searchAnimation] = useState(new Animated.Value(0))
   const [debugInfo, setDebugInfo] = useState({
     apiConnected: false,
     socketConnected: false,
@@ -177,7 +183,7 @@ export default function ChatScreen() {
               console.log("🔍 Fetched last message for", otherParticipant.userName, ":", lastMessage?.text)
             } catch (msgError) {
               console.log("❌ Error fetching last message:", msgError.message)
-              lastMessage = { text: "Tin nhắn mới (tạm)", createdAt: new Date().toISOString() } // Giải pháp fallback
+              lastMessage = { text: "Tin nhắn mới", createdAt: new Date().toISOString() }
             }
           }
           console.log("🔍 Last message for", otherParticipant.userName, ":", lastMessage?.text)
@@ -225,6 +231,7 @@ export default function ChatScreen() {
       }
 
       setConversations(finalConversations)
+      setFilteredConversations(finalConversations)
       console.log(`🎉 Data loading completed: ${finalConversations.length} conversations total`)
     } catch (err) {
       console.log("❌ Error in checkAuthAndLoadData:", err.message)
@@ -240,6 +247,37 @@ export default function ChatScreen() {
       setRefreshing(false)
     }
   }, [router])
+
+  // Search functionality
+  useEffect(() => {
+    if (searchQuery.trim() === "") {
+      setFilteredConversations(conversations)
+    } else {
+      const filtered = conversations.filter((conv) =>
+        conv.user.userName.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+      setFilteredConversations(filtered)
+    }
+  }, [searchQuery, conversations])
+
+  const toggleSearch = () => {
+    setSearchVisible(!searchVisible)
+    if (!searchVisible) {
+      Animated.timing(searchAnimation, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: false,
+      }).start()
+    } else {
+      Animated.timing(searchAnimation, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: false,
+      }).start(() => {
+        setSearchQuery("")
+      })
+    }
+  }
 
   useEffect(() => {
     const monitorConnection = setInterval(() => {
@@ -284,8 +322,8 @@ export default function ChatScreen() {
           return newMap
         })
 
-        setConversations((prevConversations) =>
-          prevConversations
+        setConversations((prevConversations) => {
+          const updated = prevConversations
             .map((conv) =>
               conv.user._id === userId
                 ? {
@@ -302,8 +340,9 @@ export default function ChatScreen() {
               if (a.lastMessage && !b.lastMessage) return -1
               if (!a.lastMessage && b.lastMessage) return 1
               return new Date(b.updatedAt) - new Date(a.updatedAt)
-            }),
-        )
+            })
+          return updated
+        })
       }
 
       const handleOnlineUsers = (users) => {
@@ -318,8 +357,8 @@ export default function ChatScreen() {
         })
         setOnlineUsers(newOnlineMap)
 
-        setConversations((prevConversations) =>
-          prevConversations
+        setConversations((prevConversations) => {
+          const updated = prevConversations
             .map((conv) => {
               const userStatus = newOnlineMap.get(conv.user._id)
               return {
@@ -335,58 +374,57 @@ export default function ChatScreen() {
               if (a.lastMessage && !b.lastMessage) return -1
               if (!a.lastMessage && b.lastMessage) return 1
               return new Date(b.updatedAt) - new Date(a.updatedAt)
-            }),
-        )
+            })
+          return updated
+        })
       }
 
       const handleNewMessage = (message) => {
-  console.log("📨 Received new message (Realtime):", JSON.stringify(message))
-  setUnreadCount((prev) => prev + 1)
+        console.log("📨 Received new message (Realtime):", JSON.stringify(message))
+        setUnreadCount((prev) => prev + 1)
 
-  const senderId = message.senderId?._id || message.senderId
-  const receiverId = message.receiverId?._id || message.receiverId
-  const otherUserId = senderId === myId ? receiverId : senderId
+        const senderId = message.senderId?._id || message.senderId
+        const receiverId = message.receiverId?._id || message.receiverId
+        const otherUserId = senderId === myId ? receiverId : senderId
 
-  setConversations((prevConversations) => {
-    const existingConvIndex = prevConversations.findIndex((conv) => conv.user._id === otherUserId)
-    if (existingConvIndex >= 0) {
-      const updatedConversations = [...prevConversations]
-      updatedConversations[existingConvIndex] = {
-        ...updatedConversations[existingConvIndex],
-        lastMessage: message,
-        unreadCount:
-          senderId !== myId
-            ? (updatedConversations[existingConvIndex].unreadCount || 0) + 1
-            : updatedConversations[existingConvIndex].unreadCount,
-        updatedAt: message.createdAt || new Date().toISOString(),
-      }
-      return updatedConversations.sort((a, b) => {
-        if (a.lastMessage && !b.lastMessage) return -1
-        if (!a.lastMessage && b.lastMessage) return 1
-        return new Date(b.updatedAt) - new Date(a.updatedAt)
-      })
-    } else {
-      const newConversation = {
-        user: {
-          _id: otherUserId,
-          userName: message.senderId?.userName || message.receiverId?.userName || "Unknown User",
-          profilePicture: message.senderId?.profilePicture || message.receiverId?.profilePicture,
-          lastSeen: new Date().toISOString(),
-          online: false,
-        },
-        lastMessage: message,
-        unreadCount: senderId !== myId ? 1 : 0,
-        updatedAt: message.createdAt || new Date().toISOString(),
-      }
-      return [newConversation, ...prevConversations].sort((a, b) => {
-        if (a.lastMessage && !b.lastMessage) return -1
-        if (!a.lastMessage && b.lastMessage) return 1
-        return new Date(b.updatedAt) - new Date(a.updatedAt)
-      })
-    }
-  })
-
-        
+        setConversations((prevConversations) => {
+          const existingConvIndex = prevConversations.findIndex((conv) => conv.user._id === otherUserId)
+          if (existingConvIndex >= 0) {
+            const updatedConversations = [...prevConversations]
+            updatedConversations[existingConvIndex] = {
+              ...updatedConversations[existingConvIndex],
+              lastMessage: message,
+              unreadCount:
+                senderId !== myId
+                  ? (updatedConversations[existingConvIndex].unreadCount || 0) + 1
+                  : updatedConversations[existingConvIndex].unreadCount,
+              updatedAt: message.createdAt || new Date().toISOString(),
+            }
+            return updatedConversations.sort((a, b) => {
+              if (a.lastMessage && !b.lastMessage) return -1
+              if (!a.lastMessage && b.lastMessage) return 1
+              return new Date(b.updatedAt) - new Date(a.updatedAt)
+            })
+          } else {
+            const newConversation = {
+              user: {
+                _id: otherUserId,
+                userName: message.senderId?.userName || message.receiverId?.userName || "Unknown User",
+                profilePicture: message.senderId?.profilePicture || message.receiverId?.profilePicture,
+                lastSeen: new Date().toISOString(),
+                online: false,
+              },
+              lastMessage: message,
+              unreadCount: senderId !== myId ? 1 : 0,
+              updatedAt: message.createdAt || new Date().toISOString(),
+            }
+            return [newConversation, ...prevConversations].sort((a, b) => {
+              if (a.lastMessage && !b.lastMessage) return -1
+              if (!a.lastMessage && b.lastMessage) return 1
+              return new Date(b.updatedAt) - new Date(a.updatedAt)
+            })
+          }
+        })
 
         setTimeout(() => {
           if (!socketService.isConnected()) {
@@ -461,20 +499,6 @@ export default function ChatScreen() {
 - Conversations: ${conversations.length}
 - Online Users: ${onlineUsers.size}
 - Unread Messages: ${unreadCount}
-
-📋 RAW DATA:
-- Conversations Response: ${debugInfo.rawConversationsData ? JSON.stringify(debugInfo.rawConversationsData).substring(0, 200) + "..." : "null"}
-- Users Response: ${debugInfo.rawUsersData ? JSON.stringify(debugInfo.rawUsersData).substring(0, 200) + "..." : "null"}
-
-🔧 ENDPOINTS USED:
-- Conversations: GET /chat/conversations
-- Users: GET /chat/users
-- Unread Count: GET /chat/unread-count
-
-👥 ONLINE STATUS:
-${Array.from(onlineUsers.entries())
-  .map(([userId, status]) => `- ${userId}: ${status.online ? "Online" : "Offline"}`)
-  .join("\n")}
     `
     Alert.alert("Debug Information", info)
   }
@@ -496,15 +520,15 @@ ${Array.from(onlineUsers.entries())
   }
 
   const formatLastMessage = (message, userId, otherUserName) => {
-  if (!message) return "Chưa có tin nhắn"
-  if (message.image && !message.text) return "📷 Đã gửi ảnh"
+    if (!message) return "Chưa có tin nhắn"
+    if (message.image && !message.text) return "📷 Đã gửi ảnh"
 
-  const senderId = message.senderId?._id || message.senderId
-  const senderName = senderId === userId ? "Bạn" : otherUserName || "Unknown User"
-  const text = message.text || message.content || "Tin nhắn mới"
+    const senderId = message.senderId?._id || message.senderId
+    const senderName = senderId === userId ? "Bạn" : otherUserName || "Unknown User"
+    const text = message.text || message.content || "Tin nhắn mới"
 
-  return `${senderName}: ${text.length > 35 ? `${text.substring(0, 35)}...` : text}`
-}
+    return `${senderName}: ${text.length > 35 ? `${text.substring(0, 35)}...` : text}`
+  }
 
   const renderItem = ({ item }) => {
     const user = item.user
@@ -521,7 +545,7 @@ ${Array.from(onlineUsers.entries())
       <TouchableOpacity
         style={styles.chatItem}
         onPress={() => handleChatWithUser(user._id)}
-        activeOpacity={0.8}
+        activeOpacity={0.7}
       >
         <LinearGradient
           colors={["#FFFFFF", "#F8FFF8"]}
@@ -533,12 +557,7 @@ ${Array.from(onlineUsers.entries())
               style={styles.avatar}
             />
             {isOnline && (
-              <View
-                style={[
-                  styles.statusIndicator,
-                  { backgroundColor: "#4CAF50" },
-                ]}
-              />
+              <View style={styles.onlineIndicator} />
             )}
           </View>
 
@@ -559,13 +578,9 @@ ${Array.from(onlineUsers.entries())
               </View>
             </View>
 
-            <Text style={styles.lastMessage} numberOfLines={1}>
+            <Text style={styles.lastMessage} numberOfLines={2}>
               {formatLastMessage(lastMessage, myId, user.userName)}
             </Text>
-
-            {!isOnline && (
-              <Text style={styles.statusText}>{formatLastSeen(userStatus.lastSeen || userStatus.timestamp)}</Text>
-            )}
           </View>
         </LinearGradient>
       </TouchableOpacity>
@@ -579,20 +594,15 @@ ${Array.from(onlineUsers.entries())
           <View style={styles.loadingContent}>
             <ActivityIndicator size="large" color="#4CAF50" />
             <Text style={styles.loadingText}>Đang tải cuộc trò chuyện...</Text>
-            <Text style={styles.loadingSubtext}>Kết nối với /chat/conversations...</Text>
           </View>
         </LinearGradient>
       </View>
     )
   }
 
-  const connectionStatusIcon = connectionInfo.status === "connected" ? "🟢" : "🔴"
-  const connectionStatusText = connectionInfo.status === "connected" ? "Đã kết nối" : "Mất kết nối"
-  const onlineCount = Array.from(onlineUsers.values()).filter((status) => status.online).length
-
   return (
     <SafeAreaView style={styles.container}>
-      <LinearGradient colors={["#2E7D32", "#4CAF50"]} style={styles.headerGradient}>
+      <LinearGradient colors={["#2E7D32", "#4CAF50", "#66BB6A"]} style={styles.headerGradient}>
         <View style={styles.header}>
           <View style={styles.headerContent}>
             <View style={styles.headerIcon}>
@@ -603,65 +613,92 @@ ${Array.from(onlineUsers.entries())
                 </View>
               )}
             </View>
-            <View style={styles.headerTextContainer}>
-              <Text style={styles.headerTitle}>Tin Nhắn</Text>
-              <Text style={styles.headerSubtitle}>
-                {connectionStatusIcon} {connectionStatusText} • {onlineCount} online • {conversations.length} cuộc trò
-                chuyện
-              </Text>
-            </View>
+            <Text style={styles.headerTitle}>Tin Nhắn</Text>
           </View>
 
           <View style={styles.headerActions}>
             <TouchableOpacity style={styles.debugButton} onPress={handleDebugInfo}>
-              <Ionicons name="information-circle" size={16} color="#FFFFFF" />
+              <Ionicons name="information-circle-outline" size={18} color="#FFFFFF" />
             </TouchableOpacity>
-            {connectionInfo.status !== "connected" && (
-              <TouchableOpacity style={styles.reconnectButton} onPress={handleForceReconnect}>
-                <Ionicons name="refresh" size={16} color="#FFFFFF" />
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity style={styles.searchButton}>
-              <Ionicons name="search" size={20} color="#FFFFFF" />
+            <TouchableOpacity style={styles.searchButton} onPress={toggleSearch}>
+              <Ionicons name={searchVisible ? "close" : "search"} size={20} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
         </View>
+
+        {searchVisible && (
+          <Animated.View
+            style={[
+              styles.searchContainer,
+              {
+                height: searchAnimation.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 60],
+                }),
+                opacity: searchAnimation,
+              },
+            ]}
+          >
+            <View style={styles.searchInputContainer}>
+              <Ionicons name="search" size={20} color="#81C784" style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Tìm kiếm theo tên..."
+                placeholderTextColor="#A5D6A7"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoFocus={searchVisible}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery("")} style={styles.clearButton}>
+                  <Ionicons name="close-circle" size={20} color="#81C784" />
+                </TouchableOpacity>
+              )}
+            </View>
+          </Animated.View>
+        )}
       </LinearGradient>
 
       <View style={styles.content}>
-        {conversations.length === 0 ? (
+        {filteredConversations.length === 0 ? (
           <View style={styles.emptyContainer}>
             <View style={styles.emptyIconContainer}>
-              <Ionicons name="chatbubbles-outline" size={80} color="#CCCCCC" />
+              <Ionicons 
+                name={searchQuery ? "search-outline" : "chatbubbles-outline"} 
+                size={64} 
+                color="#A5D6A7" 
+              />
             </View>
             <Text style={styles.emptyTitle}>
-              {!debugInfo.apiConnected
-                ? "Không thể kết nối server"
-                : !debugInfo.conversationsFetched && !debugInfo.usersFetched
-                  ? "Không thể tải dữ liệu"
-                  : "Chưa có cuộc trò chuyện nào"}
+              {searchQuery ? "Không tìm thấy kết quả" : "Chưa có cuộc trò chuyện nào"}
             </Text>
             <Text style={styles.emptySubtitle}>
-              {!debugInfo.apiConnected
-                ? "Vui lòng kiểm tra kết nối mạng và server"
-                : !debugInfo.conversationsFetched && !debugInfo.usersFetched
-                  ? "Kiểm tra endpoints /chat/conversations và /chat/users"
-                  : "Bắt đầu bằng cách kết nối với bạn bè hoặc tìm người dùng mới để trò chuyện"}
+              {searchQuery 
+                ? `Không tìm thấy cuộc trò chuyện nào với "${searchQuery}"`
+                : "Bắt đầu trò chuyện với bạn bè của bạn"
+              }
             </Text>
-            <TouchableOpacity style={styles.startChatButton} onPress={onRefresh}>
-              <Ionicons name="refresh" size={20} color="#FFFFFF" />
-              <Text style={styles.startChatText}>Thử lại</Text>
-            </TouchableOpacity>
+            {!searchQuery && (
+              <TouchableOpacity style={styles.startChatButton} onPress={onRefresh}>
+                <Ionicons name="refresh" size={20} color="#FFFFFF" />
+                <Text style={styles.startChatText}>Làm mới</Text>
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
           <FlatList
-            data={conversations}
+            data={filteredConversations}
             keyExtractor={(item) => item.user._id?.toString()}
             renderItem={renderItem}
             contentContainerStyle={styles.list}
             showsVerticalScrollIndicator={false}
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#4CAF50"]} tintColor="#4CAF50" />
+              <RefreshControl 
+                refreshing={refreshing} 
+                onRefresh={onRefresh} 
+                colors={["#4CAF50"]} 
+                tintColor="#4CAF50" 
+              />
             }
           />
         )}
@@ -673,7 +710,7 @@ ${Array.from(onlineUsers.entries())
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8FFF8",
+    backgroundColor: "#F1F8E9",
   },
   loadingContainer: {
     flex: 1,
@@ -690,22 +727,22 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 16,
     color: "#4CAF50",
-    fontWeight: "500",
-  },
-  loadingSubtext: {
-    marginTop: 8,
-    fontSize: 14,
-    color: "#666",
+    fontWeight: "600",
   },
   headerGradient: {
     paddingTop: 20,
+    shadowColor: "#2E7D32",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingBottom: 16,
   },
   headerContent: {
     flexDirection: "row",
@@ -721,57 +758,53 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 16,
     position: "relative",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   headerBadge: {
     position: "absolute",
     top: -2,
     right: -2,
     backgroundColor: "#FF5722",
-    borderRadius: 10,
+    borderRadius: 12,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    minWidth: 20,
+    minWidth: 24,
     alignItems: "center",
+    shadowColor: "#FF5722",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    elevation: 4,
   },
   headerBadgeText: {
     color: "#FFFFFF",
     fontSize: 10,
     fontWeight: "bold",
   },
-  headerTextContainer: {
-    flex: 1,
-  },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "bold",
     color: "#FFFFFF",
-    marginBottom: 4,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: "rgba(255, 255, 255, 0.8)",
+    textShadowColor: "rgba(0, 0, 0, 0.2)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
   },
   debugButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 8,
-  },
-  reconnectButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
     backgroundColor: "rgba(255, 255, 255, 0.2)",
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 8,
+    marginRight: 12,
   },
   searchButton: {
     width: 40,
@@ -781,25 +814,55 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  content: {
-    flex: 1,
-    backgroundColor: "#F8FFF8",
+  searchContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    overflow: "hidden",
   },
-  list: {
+  searchInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
+    borderRadius: 25,
     paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  chatItem: {
-    borderRadius: 16,
+    height: 44,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
-    marginBottom: 8,
+  },
+  searchIcon: {
+    marginRight: 12,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: "#2E7D32",
+    fontWeight: "500",
+  },
+  clearButton: {
+    marginLeft: 8,
+  },
+  content: {
+    flex: 1,
+    backgroundColor: "#F1F8E9",
+  },
+  list: {
+    paddingTop: 8,
+  },
+  chatItem: {
+    marginHorizontal: 16,
+    marginBottom: 2,
+    borderRadius: 16,
+    overflow: "hidden",
+    shadowColor: "#2E7D32",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   chatGradient: {
-    borderRadius: 16,
     padding: 16,
     flexDirection: "row",
     alignItems: "center",
@@ -813,21 +876,27 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     borderWidth: 2,
     borderColor: "#E8F5E8",
   },
-  statusIndicator: {
+  onlineIndicator: {
     position: "absolute",
     bottom: 2,
     right: 2,
     width: 16,
     height: 16,
     borderRadius: 8,
+    backgroundColor: "#4CAF50",
     borderWidth: 3,
     borderColor: "#FFFFFF",
+    shadowColor: "#4CAF50",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    elevation: 4,
   },
   chatInfo: {
     flex: 1,
@@ -839,8 +908,8 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   username: {
-    fontSize: 16,
-    fontWeight: "bold",
+    fontSize: 17,
+    fontWeight: "600",
     color: "#2E7D32",
     flex: 1,
   },
@@ -849,8 +918,9 @@ const styles = StyleSheet.create({
   },
   timeText: {
     fontSize: 12,
-    color: "#666",
+    color: "#81C784",
     marginBottom: 4,
+    fontWeight: "500",
   },
   unreadBadge: {
     backgroundColor: "#FF5722",
@@ -859,20 +929,21 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     minWidth: 20,
     alignItems: "center",
+    shadowColor: "#FF5722",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   unreadText: {
     color: "#FFFFFF",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "bold",
   },
   lastMessage: {
     fontSize: 14,
-    color: "#666",
-    marginBottom: 6,
-  },
-  statusText: {
-    fontSize: 12,
-    color: "#888",
+    color: "#66BB6A",
+    lineHeight: 18,
   },
   emptyContainer: {
     flex: 1,
@@ -884,21 +955,26 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: "#F0F0F0",
+    backgroundColor: "#E8F5E8",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 24,
+    shadowColor: "#2E7D32",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   emptyTitle: {
     fontSize: 20,
     fontWeight: "bold",
-    color: "#666",
+    color: "#2E7D32",
     marginBottom: 12,
     textAlign: "center",
   },
   emptySubtitle: {
     fontSize: 14,
-    color: "#888",
+    color: "#66BB6A",
     textAlign: "center",
     lineHeight: 20,
     marginBottom: 32,

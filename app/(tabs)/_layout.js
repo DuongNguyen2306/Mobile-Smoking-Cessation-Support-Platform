@@ -40,11 +40,11 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: "#007AFF",
+        tabBarActiveTintColor: "#4CAF50",
         tabBarInactiveTintColor: "#8E8E93",
         tabBarLabelStyle: {
           fontSize: 12,
-          fontWeight: "500",
+          fontWeight: "600",
           marginTop: 4,
         },
         tabBarStyle: {
@@ -53,8 +53,8 @@ export default function TabLayout() {
           paddingBottom: Platform.OS === "ios" ? 25 : 8,
           backgroundColor: "#ffffff",
           borderTopWidth: 0.5,
-          borderTopColor: "rgba(0, 0, 0, 0.1)",
-          shadowColor: "#000",
+          borderTopColor: "rgba(76, 175, 80, 0.2)",
+          shadowColor: "#2E7D32",
           shadowOffset: {
             width: 0,
             height: -2,
@@ -98,6 +98,7 @@ export default function TabLayout() {
         }}
       />
 
+      {/* Ẩn các route không mong muốn hiển thị trong tab bar */}
       <Tabs.Screen
         name="chat/[receiverId]"
         options={{
@@ -105,9 +106,15 @@ export default function TabLayout() {
         }}
       />
 
-      {/* Ẩn các route không mong muốn */}
       <Tabs.Screen
         name="followList"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="userProfile"
         options={{
           href: null,
         }}
