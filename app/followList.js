@@ -39,18 +39,20 @@ export default function FollowListScreen() {
 
       if (activeTab === "followers") {
         const response = await getFollowers(userId, { page: 1, limit: 1000 })
-        const data = response.data?.data?.following || response.data?.following || []
+        console.log("📡 Raw followers response:", JSON.stringify(response.data, null, 2))
+        const data = response.data?.data?.followers || response.data?.followers || []
         console.log("👥 Followers data:", data)
         setFollowers(Array.isArray(data) ? data : [])
       } else {
         const response = await getFollowing(userId, { page: 1, limit: 1000 })
+        console.log("📡 Raw following response:", JSON.stringify(response.data, null, 2))
         const data = response.data?.data?.following || response.data?.following || []
         console.log("👤 Following data:", data)
         setFollowing(Array.isArray(data) ? data : [])
       }
     } catch (error) {
-      console.error("❌ Error loading follow data:", error)
-      Alert.alert("Lỗi", "Không thể tải danh sách theo dõi")
+      console.error("❌ Error loading follow data:", error.message)
+      Alert.alert("Error", "Failed to load follow list")
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -61,47 +63,56 @@ export default function FollowListScreen() {
     try {
       if (isFollowing) {
         await unfollowUser(targetUserId)
-        Alert.alert("Thành công", "Đã bỏ theo dõi")
+        Alert.alert("Success", "Unfollowed successfully")
       } else {
         await followUser(targetUserId)
-        Alert.alert("Thành công", "Đã theo dõi")
+        Alert.alert("Success", "Followed successfully")
       }
 
       await loadFollowData()
     } catch (error) {
-      console.error("❌ Error toggling follow:", error)
-      Alert.alert("Lỗi", error.response?.data?.message || "Không thể thực hiện thao tác")
+      console.error("❌ Error toggling follow:", error.message)
+      Alert.alert("Error", error.response?.data?.message || "Failed to perform action")
     }
   }
 
   const renderUserItem = ({ item }) => {
-    const user = item.follower || item.following || item.user || item
+    const user = item // Expecting { _id, userName, profilePicture, role }
     const isFollowing = following.some(f => f._id === user._id)
 
     return (
-      <View style={styles.userItem}>
-        <LinearGradient colors={["#FFFFFF", "#F8FFF8"]} style={styles.userGradient}>
-          <Image
-            source={{ uri: user.profilePicture || "https://via.placeholder.com/50" }}
-            style={styles.userAvatar}
-            resizeMode="cover"
-          />
+      <TouchableOpacity
+        onPress={() => {
+          router.push({
+            pathname: "/userProfile",
+            params: { userId: user._id },
+          })
+        }}
+      >
+        <View style={styles.userItem}>
+          <LinearGradient colors={["#FFFFFF", "#F8FFF8"]} style={styles.userGradient}>
+            <Image
+              source={{ uri: user.profilePicture || "https://via.placeholder.com/50" }}
+              style={styles.userAvatar}
+              resizeMode="cover"
+            />
 
-          <View style={styles.userInfo}>
-            <Text style={styles.userName}>{user.userName || user.name || "Người dùng"}</Text>
-            <Text style={styles.userEmail}>{user.email || ""}</Text>
-          </View>
+            <View style={styles.userInfo}>
+              <Text style={styles.userName}>{user.userName || "Unknown User"}</Text>
+              <Text style={styles.userRole}>{user.role === "coach" ? "Coach" : "User"}</Text>
+            </View>
 
-          <TouchableOpacity
-            style={[styles.followButton, isFollowing && styles.followingButton]}
-            onPress={() => handleFollowToggle(user._id, isFollowing)}
-          >
-            <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
-              {isFollowing ? "Đang theo dõi" : "Theo dõi"}
-            </Text>
-          </TouchableOpacity>
-        </LinearGradient>
-      </View>
+            <TouchableOpacity
+              style={[styles.followButton, isFollowing && styles.followingButton]}
+              onPress={() => handleFollowToggle(user._id, isFollowing)}
+            >
+              <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
+                {isFollowing ? "Following" : "Follow"}
+              </Text>
+            </TouchableOpacity>
+          </LinearGradient>
+        </View>
+      </TouchableOpacity>
     )
   }
 
@@ -115,7 +126,7 @@ export default function FollowListScreen() {
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
             <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Danh sách theo dõi</Text>
+          <Text style={styles.headerTitle}>Follow List</Text>
           <View style={styles.placeholder} />
         </View>
       </LinearGradient>
@@ -127,7 +138,7 @@ export default function FollowListScreen() {
           onPress={() => setActiveTab("followers")}
         >
           <Text style={[styles.tabText, activeTab === "followers" && styles.activeTabText]}>
-            Người theo dõi ({followers.length})
+            Followers ({followers.length})
           </Text>
         </TouchableOpacity>
 
@@ -136,7 +147,7 @@ export default function FollowListScreen() {
           onPress={() => setActiveTab("following")}
         >
           <Text style={[styles.tabText, activeTab === "following" && styles.activeTabText]}>
-            Đang theo dõi ({following.length})
+            Following ({following.length})
           </Text>
         </TouchableOpacity>
       </View>
@@ -145,7 +156,7 @@ export default function FollowListScreen() {
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#4CAF50" />
-          <Text style={styles.loadingText}>Đang tải...</Text>
+          <Text style={styles.loadingText}>Loading...</Text>
         </View>
       ) : (
         <FlatList
@@ -163,7 +174,7 @@ export default function FollowListScreen() {
             <View style={styles.emptyContainer}>
               <Ionicons name="people-outline" size={64} color="#ccc" />
               <Text style={styles.emptyText}>
-                {activeTab === "followers" ? "Chưa có người theo dõi" : "Chưa theo dõi ai"}
+                {activeTab === "followers" ? "No followers yet" : "Not following anyone"}
               </Text>
             </View>
           }
@@ -272,7 +283,7 @@ const styles = StyleSheet.create({
     color: "#2E7D32",
     marginBottom: 4,
   },
-  userEmail: {
+  userRole: {
     fontSize: 14,
     color: "#666",
   },

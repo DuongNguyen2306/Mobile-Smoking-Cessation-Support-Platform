@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage"
 import axios from "axios"
 
 const API = axios.create({
-  baseURL: "http://10.87.64.155:5000", // Đảm bảo IP này đúng
+  baseURL: "https://be-smoking-cessation-support-platform-w1tg.onrender.com", // Đảm bảo IP này đúng
   withCredentials: true,
   timeout: 15000,
 })

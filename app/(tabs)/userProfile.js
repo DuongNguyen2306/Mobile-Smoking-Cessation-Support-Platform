@@ -6,25 +6,28 @@ import { LinearGradient } from "expo-linear-gradient"
 import { useLocalSearchParams, useRouter } from "expo-router"
 import { useCallback, useEffect, useState } from "react"
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    RefreshControl,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native"
-import { followUser, getFollowers, getFollowing, getUserProfile, sendMessage, unfollowUser } from "./services/api"
+import { followUser, getFollowers, getFollowing, getUserProfile, sendMessage, unfollowUser } from "../services/api"
 
 export default function UserProfileScreen() {
   const router = useRouter()
   const { userId } = useLocalSearchParams()
+  console.log("📌 Đang truy cập hồ sơ của userId:", userId)
+
   const [user, setUser] = useState(null)
   const [followersCount, setFollowersCount] = useState(0)
   const [followingCount, setFollowingCount] = useState(0)
+  const [followersList, setFollowersList] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
@@ -34,28 +37,38 @@ export default function UserProfileScreen() {
   const loadFollowCounts = useCallback(async (targetUserId) => {
     try {
       console.log("🔍 Loading follow counts for user:", targetUserId)
-
       const [followersRes, followingRes] = await Promise.allSettled([
         getFollowers(targetUserId, { page: 1, limit: 1000 }),
         getFollowing(targetUserId, { page: 1, limit: 1000 }),
       ])
 
-      // Handle followers
       if (followersRes.status === "fulfilled") {
         const followersData = followersRes.value.data
+        console.log("📡 Raw followers response:", JSON.stringify(followersData, null, 2))
+
         let count = 0
-        if (followersData?.data?.followers) {
-          count = Array.isArray(followersData.data.followers) ? followersData.data.followers.length : 0
-        } else if (followersData?.followers) {
-          count = Array.isArray(followersData.followers) ? followersData.followers.length : 0
-        } else if (followersData?.data && Array.isArray(followersData.data)) {
-          count = followersData.data.length
+        let followers = []
+
+        // Check for the exact structure: data.followers
+        if (followersData?.data?.followers && Array.isArray(followersData.data.followers)) {
+          followers = followersData.data.followers
+          count = followers.length
+        } else if (followersData?.followers && Array.isArray(followersData.followers)) {
+          followers = followersData.followers
+          count = followers.length
+        } else {
+          console.warn("⚠️ Unexpected followers data structure:", followersData)
         }
-        console.log("Followers count calculated:", count)
+
+        console.log("👥 Parsed followers list:", followers)
+        console.log("🔢 Followers count:", count)
+
         setFollowersCount(count)
+        setFollowersList(followers)
+      } else {
+        console.error("❌ Followers request failed:", followersRes.reason)
       }
 
-      // Handle following
       if (followingRes.status === "fulfilled") {
         const followingData = followingRes.value.data
         let count = 0
@@ -66,11 +79,13 @@ export default function UserProfileScreen() {
         } else if (followingData?.data && Array.isArray(followingData.data)) {
           count = followingData.data.length
         }
-        console.log("Following count calculated:", count)
+        console.log("🔢 Following count calculated:", count)
         setFollowingCount(count)
+      } else {
+        console.error("❌ Following request failed:", followingRes.reason)
       }
     } catch (error) {
-      console.log("❌ Error loading follow counts:", error)
+      console.error("❌ Error loading follow counts:", error.message)
     }
   }, [])
 
@@ -111,7 +126,7 @@ export default function UserProfileScreen() {
         console.log("✅ Loaded user data:", targetUserData)
         setUser(targetUserData)
 
-        // Load follow counts
+        // Load follow counts and followers list
         await loadFollowCounts(userId)
 
         // Check if current user is following this user
@@ -183,7 +198,7 @@ export default function UserProfileScreen() {
         }
       }
 
-      // Refresh follow counts
+      // Refresh follow counts and followers list
       await loadFollowCounts(userId)
     } catch (err) {
       console.error("❌ Error toggling follow:", err)
@@ -191,10 +206,10 @@ export default function UserProfileScreen() {
     }
   }
 
-  const handleViewFollowList = () => {
+  const handleViewFollowList = (type) => {
     router.push({
       pathname: "/followList",
-      params: { userId: userId },
+      params: { userId, type },
     })
   }
 
@@ -202,6 +217,13 @@ export default function UserProfileScreen() {
     router.push({
       pathname: "/chat/[receiverId]",
       params: { receiverId: userId },
+    })
+  }
+
+  const handleViewFollowerProfile = (followerId) => {
+    router.push({
+      pathname: "/profile/[userId]",
+      params: { userId: followerId },
     })
   }
 
@@ -276,7 +298,7 @@ export default function UserProfileScreen() {
           <View style={styles.profileHeader}>
             <View style={styles.profileImageContainer}>
               <Image
-                source={{ uri: user.avatar || "https://via.placeholder.com/120" }}
+                source={{ uri: user.avatar || user.profilePicture || "https://via.placeholder.com/120" }}
                 style={styles.profileImage}
                 resizeMode="cover"
               />
@@ -308,7 +330,8 @@ export default function UserProfileScreen() {
 
         {/* Stats Section */}
         <View style={styles.statsSection}>
-          <TouchableOpacity style={styles.statCard} onPress={handleViewFollowList}>
+          {/* Đang theo dõi */}
+          <TouchableOpacity style={styles.statCard} onPress={() => handleViewFollowList("following")}>
             <LinearGradient colors={["#FFFFFF", "#F8FFF8"]} style={styles.statGradient}>
               <Ionicons name="people" size={24} color="#4CAF50" />
               <Text style={styles.statNumber}>{followingCount}</Text>
@@ -316,7 +339,8 @@ export default function UserProfileScreen() {
             </LinearGradient>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.statCard} onPress={handleViewFollowList}>
+          {/* Người theo dõi */}
+          <TouchableOpacity style={styles.statCard} onPress={() => handleViewFollowList("followers")}>
             <LinearGradient colors={["#FFFFFF", "#F8FFF8"]} style={styles.statGradient}>
               <Ionicons name="heart" size={24} color="#4CAF50" />
               <Text style={styles.statNumber}>{followersCount}</Text>
@@ -324,11 +348,46 @@ export default function UserProfileScreen() {
             </LinearGradient>
           </TouchableOpacity>
 
+          {/* Ngày không hút */}
           <View style={styles.statCard}>
             <LinearGradient colors={["#FFFFFF", "#F8FFF8"]} style={styles.statGradient}>
               <Ionicons name="calendar" size={24} color="#4CAF50" />
               <Text style={styles.statNumber}>{user.smokingFreeDays || 0}</Text>
               <Text style={styles.statLabel}>Ngày không hút</Text>
+            </LinearGradient>
+          </View>
+        </View>
+
+        {/* Followers Section */}
+        <View style={styles.followersSection}>
+          <Text style={styles.sectionTitle}>Người theo dõi</Text>
+          <View style={styles.followersCard}>
+            <LinearGradient colors={["#FFFFFF", "#F8FFF8"]} style={styles.followersGradient}>
+              {followersList.length > 0 ? (
+                followersList.map((follower) => (
+                  <TouchableOpacity
+                    key={follower._id}
+                    style={styles.followerItem}
+                    onPress={() => handleViewFollowerProfile(follower._id)}
+                  >
+                    <Image
+                      source={{ uri: follower.profilePicture || "https://via.placeholder.com/50" }}
+                      style={styles.followerImage}
+                      resizeMode="cover"
+                    />
+                    <View style={styles.followerInfo}>
+                      <Text style={styles.followerName}>{follower.userName || "Không có tên"}</Text>
+                      <Text style={styles.followerRole}>
+                        {follower.role === "coach" ? "Huấn luyện viên" : "Thành viên"}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              ) : (
+                <Text style={styles.noFollowersText}>
+                  {followersCount > 0 ? "Đang tải dữ liệu người theo dõi..." : "Chưa có người theo dõi"}
+                </Text>
+              )}
             </LinearGradient>
           </View>
         </View>
@@ -568,6 +627,53 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#666",
     textAlign: "center",
+  },
+  followersSection: {
+    paddingHorizontal: 20,
+    marginBottom: 24,
+  },
+  followersCard: {
+    borderRadius: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  followersGradient: {
+    borderRadius: 16,
+    padding: 16,
+  },
+  followerItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+  },
+  followerImage: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 16,
+  },
+  followerInfo: {
+    flex: 1,
+  },
+  followerName: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#333",
+  },
+  followerRole: {
+    fontSize: 12,
+    color: "#888",
+  },
+  noFollowersText: {
+    fontSize: 16,
+    color: "#666",
+    textAlign: "center",
+    paddingVertical: 20,
   },
   infoSection: {
     paddingHorizontal: 20,

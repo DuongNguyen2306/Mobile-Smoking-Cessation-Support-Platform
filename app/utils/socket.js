@@ -1,7 +1,6 @@
 import io from "socket.io-client"
 
-const SOCKET_URL = "http://10.87.64.155:5000"
-
+const SOCKET_URL = "https://be-smoking-cessation-support-platform-w1tg.onrender.com"
 class SocketService {
   socket = null
   userStatusMap = new Map()
