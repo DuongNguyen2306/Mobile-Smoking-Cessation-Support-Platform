@@ -1,5 +1,3 @@
-"use client"
-
 import { Ionicons } from "@expo/vector-icons"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { LinearGradient } from "expo-linear-gradient"
@@ -374,55 +372,29 @@ export default function BlogDetailScreen() {
 
   // Xử lý theo dõi/bỏ theo dõi (Local only - API not available)
   const handleFollow = async () => {
-    if (!blog?.user?._id && !blog?.user?.id) {
-      showToast("Không thể thực hiện hành động này")
-      return
+  const targetUserId = blog?.user?._id || blog?.user?.id;
+  if (!targetUserId) return;
+
+  try {
+    let followingList = await getStoredFollowing();
+    const wasFollowing = isFollowing;
+
+    if (wasFollowing) {
+      followingList = followingList.filter((id) => id !== targetUserId);
+      setIsFollowing(false);
+      await API.put(`/users/unfollow/${targetUserId}`);
+    } else {
+      followingList.push(targetUserId);
+      setIsFollowing(true);
+      await API.put(`/users/follow/${targetUserId}`);
     }
 
-    if (!userId) {
-      Alert.alert("Thông báo", "Vui lòng đăng nhập để theo dõi")
-      router.push("/(auth)/login")
-      return
-    }
-
-    const targetUserId = blog?.user?._id || blog?.user?.id
-    if (!targetUserId || !isValidObjectId(targetUserId)) {
-      Alert.alert("Lỗi", "ID người dùng không hợp lệ")
-      return
-    }
-
-    if (targetUserId === userId) {
-      Alert.alert("Thông báo", "Bạn không thể theo dõi chính mình")
-      return
-    }
-
-    if (followLoading) return
-
-    setFollowLoading(true)
-    triggerFollowAnimation()
-
-    try {
-      let followingList = await getStoredFollowing()
-
-      if (isFollowing) {
-        // Bỏ theo dõi - chỉ cập nhật local
-        followingList = followingList.filter((id) => id !== targetUserId)
-        await storeFollowing(followingList)
-        setIsFollowing(false)
-        showToast(`Đã bỏ theo dõi ${blog.user?.userName || "tác giả"} 👋`)
-      } else {
-        // Theo dõi - chỉ cập nhật local
-        followingList.push(targetUserId)
-        await storeFollowing(followingList)
-        setIsFollowing(true)
-        showToast(`Đã theo dõi ${blog.user?.userName || "tác giả"} 🎉`)
-      }
-    } catch (err) {
-      console.error("Lỗi theo dõi/bỏ theo dõi:", err)
-      showToast("Có lỗi xảy ra, vui lòng thử lại")
-    } finally {
-      setFollowLoading(false)
-    }
+    await storeFollowing(followingList);
+    showToast(wasFollowing ? "Đã bỏ theo dõi 👋" : "Đã theo dõi 🎉");
+  } catch (error) {
+    console.error("❌ Error toggling follow:", error.message);
+    showToast("Có lỗi xảy ra khi cập nhật theo dõi.");
+  }
   }
 
   if (loading) {

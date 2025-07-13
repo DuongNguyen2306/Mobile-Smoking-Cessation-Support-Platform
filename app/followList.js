@@ -1,12 +1,13 @@
 "use client"
 
 import { Ionicons } from "@expo/vector-icons"
+import AsyncStorage from "@react-native-async-storage/async-storage"
 import { LinearGradient } from "expo-linear-gradient"
 import { useLocalSearchParams, useRouter } from "expo-router"
 import { useEffect, useState } from "react"
 import {
   ActivityIndicator,
-  Alert,
+  Animated,
   FlatList,
   Image,
   SafeAreaView,
@@ -17,6 +18,37 @@ import {
 } from "react-native"
 import { followUser, getFollowers, getFollowing, unfollowUser } from "./services/api"
 
+// Color constants
+const COLORS = {
+  primary: "#4CAF50",
+  secondary: "#2E7D32",
+  text: "#333",
+  lightText: "#666",
+  background: "#F8FFF8",
+  lightBackground: "#F1F8E9",
+  white: "#FFFFFF",
+}
+
+// Hàm lấy danh sách following từ AsyncStorage
+const getStoredFollowing = async () => {
+  try {
+    const followingData = await AsyncStorage.getItem("following")
+    return followingData ? JSON.parse(followingData) : []
+  } catch (err) {
+    console.error("Lỗi khi lấy danh sách following từ AsyncStorage:", err)
+    return []
+  }
+}
+
+// Hàm lưu danh sách following vào AsyncStorage
+const storeFollowing = async (followingList) => {
+  try {
+    await AsyncStorage.setItem("following", JSON.stringify(followingList))
+  } catch (err) {
+    console.error("Lỗi khi lưu danh sách following vào AsyncStorage:", err)
+  }
+}
+
 export default function FollowListScreen() {
   const router = useRouter()
   const { userId, type } = useLocalSearchParams()
@@ -25,6 +57,34 @@ export default function FollowListScreen() {
   const [following, setFollowing] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [followLoading, setFollowLoading] = useState({})
+  const [toastMessage, setToastMessage] = useState(null)
+  const [followAnimations] = useState({})
+
+  // Hiển thị thông báo tạm thời
+  const showToast = (message) => {
+    setToastMessage(message)
+    setTimeout(() => setToastMessage(null), 3000)
+  }
+
+  // Hiệu ứng hoạt hình khi nhấn follow/unfollow
+  const triggerFollowAnimation = (userId) => {
+    if (!followAnimations[userId]) {
+      followAnimations[userId] = new Animated.Value(1)
+    }
+    Animated.sequence([
+      Animated.timing(followAnimations[userId], {
+        toValue: 0.95,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.timing(followAnimations[userId], {
+        toValue: 1,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+    ]).start()
+  }
 
   useEffect(() => {
     if (userId) {
@@ -49,36 +109,54 @@ export default function FollowListScreen() {
         const data = response.data?.data?.following || response.data?.following || []
         console.log("👤 Following data:", data)
         setFollowing(Array.isArray(data) ? data : [])
+
+        // Đồng bộ AsyncStorage với server
+        const followingIds = data.map((user) => user._id).filter(Boolean)
+        await storeFollowing(followingIds)
       }
     } catch (error) {
       console.error("❌ Error loading follow data:", error.message)
-      Alert.alert("Error", "Failed to load follow list")
+      showToast("Không thể tải danh sách. Vui lòng thử lại.")
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
   }
 
-  const handleFollowToggle = async (targetUserId, isFollowing) => {
-    try {
-      if (isFollowing) {
-        await unfollowUser(targetUserId)
-        Alert.alert("Success", "Unfollowed successfully")
-      } else {
-        await followUser(targetUserId)
-        Alert.alert("Success", "Followed successfully")
-      }
+  const handleFollowToggle = async (targetUserId, isCurrentlyFollowing) => {
+  console.log("👉 Toggle follow for", targetUserId)
+  if (followLoading[targetUserId]) return
 
-      await loadFollowData()
-    } catch (error) {
-      console.error("❌ Error toggling follow:", error.message)
-      Alert.alert("Error", error.response?.data?.message || "Failed to perform action")
+  setFollowLoading((prev) => ({ ...prev, [targetUserId]: true }))
+  triggerFollowAnimation(targetUserId)
+
+  try {
+    if (isCurrentlyFollowing) {
+      console.log("📤 Sending UNFOLLOW request...")
+      await unfollowUser(targetUserId)
+    } else {
+      console.log("📤 Sending FOLLOW request...")
+      await followUser(targetUserId)
     }
+
+    // ✅ Reload lại danh sách FOLLOW/UNFOLLOW sau khi thay đổi
+    await loadFollowData()
+
+  } catch (error) {
+    console.error("❌ API follow/unfollow failed:", error.message)
+    console.error("📦 Full error:", error.response?.data || error)
+    showToast("Thao tác thất bại. Vui lòng thử lại.")
+  } finally {
+    setFollowLoading((prev) => ({ ...prev, [targetUserId]: false }))
   }
+}
+
+
 
   const renderUserItem = ({ item }) => {
     const user = item // Expecting { _id, userName, profilePicture, role }
-    const isFollowing = following.some(f => f._id === user._id)
+    const isFollowing = following.some((f) => f._id === user._id);
+
 
     return (
       <TouchableOpacity
@@ -89,29 +167,32 @@ export default function FollowListScreen() {
           })
         }}
       >
-        <View style={styles.userItem}>
-          <LinearGradient colors={["#FFFFFF", "#F8FFF8"]} style={styles.userGradient}>
+        <Animated.View style={[styles.userItem, { transform: [{ scale: followAnimations[user._id] || 1 }] }]}>
+          <LinearGradient colors={[COLORS.white, COLORS.lightBackground]} style={styles.userGradient}>
             <Image
               source={{ uri: user.profilePicture || "https://via.placeholder.com/50" }}
               style={styles.userAvatar}
               resizeMode="cover"
             />
-
             <View style={styles.userInfo}>
               <Text style={styles.userName}>{user.userName || "Unknown User"}</Text>
               <Text style={styles.userRole}>{user.role === "coach" ? "Coach" : "User"}</Text>
             </View>
-
             <TouchableOpacity
-              style={[styles.followButton, isFollowing && styles.followingButton]}
+              style={[styles.followButton, isFollowing && styles.followingButton, followLoading[user._id] && styles.followButtonDisabled]}
               onPress={() => handleFollowToggle(user._id, isFollowing)}
+              disabled={followLoading[user._id]}
             >
-              <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
-                {isFollowing ? "Following" : "Follow"}
-              </Text>
+              {followLoading[user._id] ? (
+                <ActivityIndicator size="small" color={COLORS.primary} />
+              ) : (
+                <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
+                  {isFollowing ? "Đang theo dõi" : "Theo dõi"}
+                </Text>
+              )}
             </TouchableOpacity>
           </LinearGradient>
-        </View>
+        </Animated.View>
       </TouchableOpacity>
     )
   }
@@ -120,43 +201,44 @@ export default function FollowListScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <LinearGradient colors={["#2E7D32", "#4CAF50"]} style={styles.header}>
+      {toastMessage && (
+        <Animated.View style={styles.toastContainer}>
+          <LinearGradient colors={[COLORS.primary, COLORS.secondary]} style={styles.toastGradient}>
+            <Text style={styles.toastText}>{toastMessage}</Text>
+          </LinearGradient>
+        </Animated.View>
+      )}
+      <LinearGradient colors={[COLORS.secondary, COLORS.primary]} style={styles.header}>
         <View style={styles.headerContent}>
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+            <Ionicons name="arrow-back" size={24} color={COLORS.white} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Follow List</Text>
+          <Text style={styles.headerTitle}>Danh sách theo dõi</Text>
           <View style={styles.placeholder} />
         </View>
       </LinearGradient>
-
-      {/* Tabs */}
       <View style={styles.tabContainer}>
         <TouchableOpacity
           style={[styles.tab, activeTab === "followers" && styles.activeTab]}
           onPress={() => setActiveTab("followers")}
         >
           <Text style={[styles.tabText, activeTab === "followers" && styles.activeTabText]}>
-            Followers ({followers.length})
+            Người theo dõi ({followers.length})
           </Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={[styles.tab, activeTab === "following" && styles.activeTab]}
           onPress={() => setActiveTab("following")}
         >
           <Text style={[styles.tabText, activeTab === "following" && styles.activeTabText]}>
-            Following ({following.length})
+            Đang theo dõi ({following.length})
           </Text>
         </TouchableOpacity>
       </View>
-
-      {/* Content */}
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#4CAF50" />
-          <Text style={styles.loadingText}>Loading...</Text>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loadingText}>Đang tải...</Text>
         </View>
       ) : (
         <FlatList
@@ -172,9 +254,9 @@ export default function FollowListScreen() {
           }}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Ionicons name="people-outline" size={64} color="#ccc" />
+              <Ionicons name="people-outline" size={64} color={COLORS.lightText} />
               <Text style={styles.emptyText}>
-                {activeTab === "followers" ? "No followers yet" : "Not following anyone"}
+                {activeTab === "followers" ? "Chưa có người theo dõi" : "Chưa theo dõi ai"}
               </Text>
             </View>
           }
@@ -187,11 +269,16 @@ export default function FollowListScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8FFF8",
+    backgroundColor: COLORS.background,
   },
   header: {
     paddingTop: 10,
     paddingBottom: 15,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   headerContent: {
     flexDirection: "row",
@@ -205,14 +292,14 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: "bold",
-    color: "#FFFFFF",
+    color: COLORS.white,
   },
   placeholder: {
     width: 40,
   },
   tabContainer: {
     flexDirection: "row",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: COLORS.white,
     marginHorizontal: 20,
     marginTop: 10,
     borderRadius: 12,
@@ -230,15 +317,15 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   activeTab: {
-    backgroundColor: "#4CAF50",
+    backgroundColor: COLORS.primary,
   },
   tabText: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#666",
+    color: COLORS.lightText,
   },
   activeTabText: {
-    color: "#FFFFFF",
+    color: COLORS.white,
   },
   loadingContainer: {
     flex: 1,
@@ -248,7 +335,7 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: "#4CAF50",
+    color: COLORS.primary,
   },
   listContainer: {
     padding: 20,
@@ -280,31 +367,34 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: 16,
     fontWeight: "bold",
-    color: "#2E7D32",
+    color: COLORS.secondary,
     marginBottom: 4,
   },
   userRole: {
     fontSize: 14,
-    color: "#666",
+    color: COLORS.lightText,
   },
   followButton: {
-    backgroundColor: "#4CAF50",
+    backgroundColor: COLORS.primary,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
   },
   followingButton: {
-    backgroundColor: "#E8F5E8",
+    backgroundColor: COLORS.lightBackground,
     borderWidth: 1,
-    borderColor: "#4CAF50",
+    borderColor: COLORS.primary,
+  },
+  followButtonDisabled: {
+    opacity: 0.6,
   },
   followButtonText: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#FFFFFF",
+    color: COLORS.white,
   },
   followingButtonText: {
-    color: "#4CAF50",
+    color: COLORS.primary,
   },
   emptyContainer: {
     flex: 1,
@@ -315,7 +405,30 @@ const styles = StyleSheet.create({
   emptyText: {
     marginTop: 16,
     fontSize: 16,
-    color: "#666",
+    color: COLORS.lightText,
     textAlign: "center",
+  },
+  toastContainer: {
+    position: "absolute",
+    top: 60,
+    left: 20,
+    right: 20,
+    zIndex: 1000,
+    alignItems: "center",
+  },
+  toastGradient: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 25,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  toastText: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: "600",
   },
 })

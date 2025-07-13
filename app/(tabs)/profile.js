@@ -26,6 +26,24 @@ import { getFollowers, getFollowing, getProfile, updateProfile } from "../servic
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const HEADER_HEIGHT = 280;
 
+const getStoredFollowing = async () => {
+  try {
+    const followingData = await AsyncStorage.getItem("following");
+    return followingData ? JSON.parse(followingData) : [];
+  } catch (err) {
+    console.error("Lỗi khi lấy danh sách following từ AsyncStorage:", err);
+    return [];
+  }
+};
+
+const storeFollowing = async (followingList) => {
+  try {
+    await AsyncStorage.setItem("following", JSON.stringify(followingList));
+  } catch (err) {
+    console.error("Lỗi khi lưu danh sách following vào AsyncStorage:", err);
+  }
+};
+
 export default function ProfileScreen() {
   const router = useRouter();
   const [user, setUser] = useState(null);
@@ -42,6 +60,13 @@ export default function ProfileScreen() {
   const loadFollowCounts = useCallback(async (userId) => {
     try {
       console.log("🔍 Loading follow counts for userId:", userId);
+
+      // Lấy followingCount từ AsyncStorage trước
+      const followingList = await getStoredFollowing();
+      setFollowingCount(followingList.length);
+      console.log("🔢 Following count from AsyncStorage:", followingList.length);
+
+      // Gọi API để lấy followers và following
       const [followersRes, followingRes] = await Promise.allSettled([
         getFollowers(userId, { page: 1, limit: 1000 }),
         getFollowing(userId, { page: 1, limit: 1000 }),
@@ -74,15 +99,26 @@ export default function ProfileScreen() {
       if (followingRes.status === "fulfilled") {
         const followingData = followingRes.value.data;
         let count = 0;
+        let serverFollowingList = [];
         if (followingData?.data?.following) {
-          count = Array.isArray(followingData.data.following) ? followingData.data.following.length : 0;
+          serverFollowingList = Array.isArray(followingData.data.following)
+            ? followingData.data.following.map((user) => user._id)
+            : [];
+          count = serverFollowingList.length;
         } else if (followingData?.following) {
-          count = Array.isArray(followingData.following) ? followingData.following.length : 0;
+          serverFollowingList = Array.isArray(followingData.following)
+            ? followingData.following.map((user) => user._id)
+            : [];
+          count = serverFollowingList.length;
         } else if (followingData?.data && Array.isArray(followingData.data)) {
-          count = followingData.data.length;
+          serverFollowingList = followingData.data.map((user) => user._id);
+          count = serverFollowingList.length;
         }
-        console.log("🔢 Following count calculated:", count);
+        console.log("🔢 Following count from server:", count);
         setFollowingCount(count);
+
+        // Đồng bộ AsyncStorage với server
+        await storeFollowing(serverFollowingList);
       } else {
         console.error("❌ Following request failed:", followingRes.reason);
       }
@@ -151,7 +187,6 @@ export default function ProfileScreen() {
       const token = await AsyncStorage.getItem("token");
       if (!token) throw new Error("No authentication token");
 
-      // Only send the fields that are allowed to be updated
       const updateData = {
         userName: editData.userName,
         bio: editData.bio,
@@ -195,11 +230,13 @@ export default function ProfileScreen() {
           try {
             await AsyncStorage.removeItem("token");
             await AsyncStorage.removeItem("user");
+            await AsyncStorage.removeItem("following"); // Xóa danh sách following khi logout
             router.replace("/(auth)/login");
           } catch (err) {
             console.error("Logout error:", err);
             await AsyncStorage.removeItem("token");
             await AsyncStorage.removeItem("user");
+            await AsyncStorage.removeItem("following");
             router.replace("/(auth)/login");
           }
         },
@@ -339,7 +376,6 @@ export default function ProfileScreen() {
           />
         }
       >
-        {/* Enhanced Header with Parallax Effect */}
         <Animated.View 
           style={[
             styles.headerContainer,
@@ -381,7 +417,6 @@ export default function ProfileScreen() {
                   </View>
                 </View>
 
-                {/* SINGLE EDIT PROFILE BUTTON */}
                 <TouchableOpacity 
                   style={styles.editButton} 
                   onPress={handleEditProfile}
@@ -397,7 +432,6 @@ export default function ProfileScreen() {
           </LinearGradient>
         </Animated.View>
 
-        {/* Enhanced Stats Section */}
         <View style={styles.statsSection}>
           <TouchableOpacity 
             style={styles.statCard} 
@@ -441,7 +475,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Enhanced Achievement Section */}
         <View style={styles.achievementSection}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>🏆 Achievements</Text>
@@ -479,7 +512,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Enhanced Followers Section */}
         {followersList.length > 0 && (
           <View style={styles.followersSection}>
             <View style={styles.sectionHeader}>
@@ -518,7 +550,6 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {/* CLEANED UP INFO SECTION - Removed Date of Birth and City */}
         <View style={styles.infoSection}>
           <Text style={styles.sectionTitle}>📋 Personal Information</Text>
 
@@ -549,7 +580,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Enhanced Action Section */}
         <View style={styles.actionSection}>
           <Text style={styles.sectionTitle}>⚙️ Quick Actions</Text>
           
@@ -570,7 +600,6 @@ export default function ProfileScreen() {
           ))}
         </View>
 
-        {/* Enhanced Logout Section */}
         <View style={styles.logoutSection}>
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.8}>
             <LinearGradient colors={["#FF5722", "#FF7043"]} style={styles.logoutGradient}>
@@ -581,7 +610,6 @@ export default function ProfileScreen() {
         </View>
       </Animated.ScrollView>
 
-      {/* EDIT PROFILE MODAL */}
       <Modal
         visible={editing}
         animationType="slide"
@@ -591,7 +619,6 @@ export default function ProfileScreen() {
         <SafeAreaView style={styles.modalContainer}>
           <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
           
-          {/* Modal Header */}
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={handleCloseEdit} style={styles.closeButton}>
               <Ionicons name="close" size={28} color="#666" />
@@ -602,11 +629,8 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Modal Content */}
           <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
             <LinearGradient colors={["#F8F9FA", "#FFFFFF"]} style={styles.modalGradient}>
-              
-              {/* Profile Image Section */}
               <View style={styles.editImageSection}>
                 <View style={styles.editImageContainer}>
                   <Image
@@ -621,7 +645,6 @@ export default function ProfileScreen() {
                 <Text style={styles.changeImageText}>Tap to change profile photo</Text>
               </View>
 
-              {/* Form Fields - Only editable ones */}
               <View style={styles.formSection}>
                 {[
                   { key: "userName", placeholder: "Enter your username", icon: "person-outline", label: "Username" },
@@ -649,7 +672,6 @@ export default function ProfileScreen() {
                 ))}
               </View>
 
-              {/* Info Note */}
               <View style={styles.infoNote}>
                 <Ionicons name="information-circle-outline" size={20} color="#4CAF50" />
                 <Text style={styles.infoNoteText}>
@@ -657,7 +679,6 @@ export default function ProfileScreen() {
                 </Text>
               </View>
 
-              {/* Action Buttons */}
               <View style={styles.modalActions}>
                 <TouchableOpacity style={styles.saveButton} onPress={handleUpdateProfile}>
                   <LinearGradient colors={["#4CAF50", "#66BB6A"]} style={styles.saveGradient}>
@@ -686,8 +707,6 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
-  
-  // Loading States
   loadingContainer: {
     flex: 1,
   },
@@ -705,8 +724,6 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "600",
   },
-  
-  // Error States
   errorContainer: {
     flex: 1,
   },
@@ -758,8 +775,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginLeft: 8,
   },
-  
-  // Header
   headerContainer: {
     height: HEADER_HEIGHT,
   },
@@ -875,8 +890,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginLeft: 8,
   },
-  
-  // Stats Section
   statsSection: {
     flexDirection: "row",
     paddingHorizontal: 20,
@@ -930,8 +943,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: "#4CAF50",
   },
-  
-  // Section Headers
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -948,8 +959,6 @@ const styles = StyleSheet.create({
     color: "#4CAF50",
     fontWeight: "600",
   },
-  
-  // Achievement Section
   achievementSection: {
     paddingHorizontal: 20,
     marginBottom: 30,
@@ -1006,8 +1015,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#4CAF50",
     borderRadius: 3,
   },
-  
-  // Followers Section
   followersSection: {
     marginBottom: 30,
   },
@@ -1053,8 +1060,6 @@ const styles = StyleSheet.create({
     color: "#4CAF50",
     fontWeight: "500",
   },
-  
-  // Info Section
   infoSection: {
     paddingHorizontal: 20,
     marginBottom: 30,
@@ -1100,8 +1105,6 @@ const styles = StyleSheet.create({
     color: "#333",
     fontWeight: "600",
   },
-  
-  // Action Section
   actionSection: {
     paddingHorizontal: 20,
     marginBottom: 30,
@@ -1135,8 +1138,6 @@ const styles = StyleSheet.create({
     color: "#333",
     fontWeight: "600",
   },
-  
-  // Logout Section
   logoutSection: {
     paddingHorizontal: 20,
     paddingBottom: 40,
@@ -1162,8 +1163,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginLeft: 8,
   },
-  
-  // MODAL STYLES
   modalContainer: {
     flex: 1,
     backgroundColor: "#FFFFFF",
@@ -1210,8 +1209,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingBottom: 40,
   },
-  
-  // Edit Image Section
   editImageSection: {
     alignItems: "center",
     paddingVertical: 30,
@@ -1246,8 +1243,6 @@ const styles = StyleSheet.create({
     color: "#666",
     textAlign: "center",
   },
-  
-  // Form Section
   formSection: {
     paddingHorizontal: 20,
   },
@@ -1283,8 +1278,6 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
     paddingTop: 15,
   },
-  
-  // Info Note
   infoNote: {
     flexDirection: "row",
     alignItems: "center",
@@ -1301,8 +1294,6 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     lineHeight: 20,
   },
-  
-  // Modal Actions
   modalActions: {
     paddingHorizontal: 20,
     paddingTop: 10,

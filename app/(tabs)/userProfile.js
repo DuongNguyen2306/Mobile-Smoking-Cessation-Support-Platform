@@ -1,5 +1,3 @@
-"use client"
-
 import { Ionicons } from "@expo/vector-icons"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { LinearGradient } from "expo-linear-gradient"
@@ -19,7 +17,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native"
-import { getFollowers, getFollowing, getUserProfile, sendMessage } from "../services/api"
+import API, { getFollowers, getFollowing, getUserProfile } from "../services/api"
+
 
 const { width } = Dimensions.get("window")
 
@@ -42,7 +41,7 @@ const COLORS = {
   warning: "#FF9800",
 }
 
-// Hàm lấy danh sách following từ AsyncStorage
+
 const getStoredFollowing = async () => {
   try {
     const followingData = await AsyncStorage.getItem("following")
@@ -272,54 +271,36 @@ export default function UserProfileScreen() {
     setRefreshing(false)
   }, [loadUserProfile])
 
-  // Updated follow handler to use local storage only
+  
   const handleFollow = async () => {
-    if (!currentUserId) {
-      Alert.alert("Thông báo", "Vui lòng đăng nhập để theo dõi")
-      router.push("/(auth)/login")
-      return
+  const targetUserId = userId; 
+  if (!targetUserId) return;
+
+  try {
+    let followingList = await getStoredFollowing();
+    const wasFollowing = isFollowing;
+
+    if (wasFollowing) {
+      followingList = followingList.filter((id) => id !== targetUserId);
+      setIsFollowing(false);
+      await API.put(`/users/unfollow/${targetUserId}`);
+    } else {
+      followingList.push(targetUserId);
+      setIsFollowing(true);
+      await API.put(`/users/follow/${targetUserId}`);
     }
 
-    if (currentUserId === userId) {
-      Alert.alert("Thông báo", "Bạn không thể theo dõi chính mình")
-      return
-    }
+    await storeFollowing(followingList);
+    showToast(wasFollowing ? "Đã bỏ theo dõi 👋" : "Đã theo dõi 🎉");
 
-    if (followLoading) return
+    
+    await loadFollowCounts(targetUserId);
+  } catch (error) {
+    console.error("❌ Error toggling follow:", error.message);
+    showToast("Có lỗi xảy ra khi cập nhật theo dõi.");
+  }
 
-    setFollowLoading(true)
-    triggerFollowAnimation()
 
-    try {
-      let followingList = await getStoredFollowing()
-
-      if (isFollowing) {
-        // Bỏ theo dõi - chỉ cập nhật local
-        followingList = followingList.filter((id) => id !== userId)
-        await storeFollowing(followingList)
-        setIsFollowing(false)
-        showToast(`Đã bỏ theo dõi ${user?.userName || user?.name || "người dùng"} 👋`)
-      } else {
-        // Theo dõi - chỉ cập nhật local
-        followingList.push(userId)
-        await storeFollowing(followingList)
-        setIsFollowing(true)
-        showToast(`Đã theo dõi ${user?.userName || user?.name || "người dùng"} 🎉`)
-
-        // Optionally send notification message (if API supports it)
-        try {
-          await sendMessage(userId, { text: `${currentUserId} đã follow bạn!` })
-        } catch (sendErr) {
-          console.error("Lỗi gửi tin nhắn:", sendErr.message)
-          // Don't show error to user as this is optional
-        }
-      }
-    } catch (err) {
-      console.error("❌ Error toggling follow:", err)
-      showToast("Có lỗi xảy ra, vui lòng thử lại")
-    } finally {
-      setFollowLoading(false)
-    }
   }
 
   const handleViewFollowList = (type) => {
