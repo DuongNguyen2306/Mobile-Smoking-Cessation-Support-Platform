@@ -87,6 +87,17 @@ export default function TabLayout() {
         }}
       />
 
+        <Tabs.Screen
+        name="plans"
+        options={{
+          title: "Kế hoạch",
+          href: isAuthenticated ? undefined : null,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "clipboard" : "clipboard-outline"} size={24} color={color} />
+          ),
+        }}
+      />
+
       <Tabs.Screen
         name="profile"
         options={{
@@ -133,6 +144,41 @@ export default function TabLayout() {
           href: null,
         }}
       />
+
+      <Tabs.Screen
+        name="plans/[planId]"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="editBlog"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="createBlog"
+        options={{
+          href: null,
+        }}
+      />
+
+       <Tabs.Screen
+        name="current"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="custom-request"
+        options={{
+          href: null,
+        }}
+      />
+
     </Tabs>
   )
 }

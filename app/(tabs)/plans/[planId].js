@@ -15,7 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native"
-import { getCurrentQuitPlan, getQuitPlanById, selectQuitPlan, updateQuitPlanStatus } from "../../services/api"
+import { getCurrentQuitPlan, getQuitPlanById, selectQuitPlan } from "../../services/api"
 
 const COLORS = {
   primary: "#4CAF50",
@@ -67,7 +67,6 @@ export default function QuitPlanDetailScreen() {
   const [stages, setStages] = useState([])
   const [progress, setProgress] = useState([])
   const [loading, setLoading] = useState(true)
-  const [updating, setUpdating] = useState(false)
   const [registering, setRegistering] = useState(false)
   const [hasCurrentPlan, setHasCurrentPlan] = useState(false)
 
@@ -126,21 +125,17 @@ export default function QuitPlanDetailScreen() {
     }
   }, [])
 
-  const handleStatusUpdate = async (newStatus) => {
-    try {
-      setUpdating(true)
-      await updateQuitPlanStatus(planId, newStatus)
-      setPlan((prev) => ({ ...prev, status: newStatus }))
-      Alert.alert("Thành công", `Đã cập nhật trạng thái thành "${STATUS_CONFIG[newStatus]?.label}"`)
-    } catch (error) {
-      console.error("Error updating status:", error)
-      Alert.alert("Lỗi", "Không thể cập nhật trạng thái")
-    } finally {
-      setUpdating(false)
-    }
-  }
-
   const handleRegisterPlan = async () => {
+    // Kiểm tra xem có phải template không
+    if (!isTemplate || plan.status !== "template") {
+      Alert.alert(
+        "Không thể đăng ký",
+        "Chỉ có thể đăng ký các kế hoạch mẫu (template). Kế hoạch này có trạng thái: " + statusConfig.label,
+        [{ text: "OK" }],
+      )
+      return
+    }
+
     if (hasCurrentPlan) {
       Alert.alert("Thông báo", "Bạn đã có kế hoạch đang thực hiện. Bạn có muốn thay thế bằng kế hoạch này không?", [
         { text: "Hủy", style: "cancel" },
@@ -154,9 +149,14 @@ export default function QuitPlanDetailScreen() {
   const proceedWithRegistration = async () => {
     try {
       setRegistering(true)
-      console.log("Registering for plan:", planId)
+      console.log("Registering for template plan:", planId)
+      console.log("Plan status:", plan.status)
 
-      // Call API with correct payload structure
+      // Đảm bảo chỉ gọi API với template plans
+      if (plan.status !== "template") {
+        throw new Error("Chỉ có thể đăng ký kế hoạch mẫu")
+      }
+
       const response = await selectQuitPlan(planId)
 
       if (response.status === 200 || response.status === 201) {
@@ -167,7 +167,6 @@ export default function QuitPlanDetailScreen() {
             {
               text: "Xem kế hoạch của tôi",
               onPress: () => {
-                // Navigate to current plan
                 router.push("/plans/current")
               },
             },
@@ -189,8 +188,13 @@ export default function QuitPlanDetailScreen() {
 
       if (error.response?.data?.message) {
         errorMessage = error.response.data.message
+
+        // Xử lý lỗi template đặc biệt
+        if (errorMessage.includes("template")) {
+          errorMessage = "Chỉ có thể đăng ký các kế hoạch mẫu (template). Vui lòng chọn kế hoạch khác."
+        }
       } else if (error.response?.status === 400) {
-        errorMessage = "Dữ liệu không hợp lệ. Vui lòng kiểm tra lại."
+        errorMessage = "Chỉ có thể đăng ký kế hoạch mẫu. Vui lòng kiểm tra lại."
       } else if (error.response?.status === 401) {
         errorMessage = "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."
       } else if (error.response?.status === 409) {
@@ -254,13 +258,58 @@ export default function QuitPlanDetailScreen() {
     )
   }
 
+  const renderActionButtons = () => {
+    if (isTemplate) {
+      // Chỉ hiển thị nút đăng ký cho template plans
+      return (
+        <TouchableOpacity style={styles.registerButton} onPress={handleRegisterPlan} disabled={registering}>
+          <LinearGradient colors={[COLORS.primary, COLORS.accent]} style={styles.registerButtonGradient}>
+            {registering ? (
+              <ActivityIndicator size="small" color={COLORS.white} />
+            ) : (
+              <>
+                <Ionicons name="add-circle" size={24} color={COLORS.white} />
+                <Text style={styles.registerButtonText}>
+                  {hasCurrentPlan ? "Thay thế kế hoạch hiện tại" : "Đăng ký kế hoạch này"}
+                </Text>
+              </>
+            )}
+          </LinearGradient>
+        </TouchableOpacity>
+      )
+    }
+
+    // Hiển thị thông tin trạng thái cho các kế hoạch không phải template
+    return (
+      <View style={styles.statusInfo}>
+        <Ionicons name={statusConfig.icon} size={24} color={statusConfig.color} />
+        <View style={styles.statusInfoContent}>
+          <Text style={[styles.statusInfoTitle, { color: statusConfig.color }]}>Trạng thái: {statusConfig.label}</Text>
+          {plan.status === "ongoing" && (
+            <Text style={styles.statusInfoDescription}>
+              Kế hoạch này đang được thực hiện. Bạn có thể theo dõi tiến độ trong phần "Kế hoạch hiện tại".
+            </Text>
+          )}
+          {plan.status === "completed" && (
+            <Text style={styles.statusInfoDescription}>Kế hoạch này đã hoàn thành thành công! 🎉</Text>
+          )}
+          {plan.status === "failed" && (
+            <Text style={styles.statusInfoDescription}>
+              Kế hoạch này đã kết thúc. Bạn có thể chọn kế hoạch mẫu khác để bắt đầu lại.
+            </Text>
+          )}
+        </View>
+      </View>
+    )
+  }
+
   useEffect(() => {
     if (plan) {
       const config = STATUS_CONFIG[plan.status] || STATUS_CONFIG.template
       setStatusConfig(config)
       setIsTemplate(plan.status === "template")
       console.log("Plan status:", plan.status)
-      console.log("Is template:", isTemplate)
+      console.log("Is template:", plan.status === "template")
       console.log("Plan data:", plan)
     }
   }, [plan])
@@ -401,74 +450,7 @@ export default function QuitPlanDetailScreen() {
             {renderProgress()}
 
             {/* Action Buttons */}
-            <View style={styles.actionSection}>
-              {isTemplate ? (
-                // Registration button for templates - ALWAYS SHOW FOR TEMPLATES
-                <TouchableOpacity style={styles.registerButton} onPress={handleRegisterPlan} disabled={registering}>
-                  <LinearGradient colors={[COLORS.primary, COLORS.accent]} style={styles.registerButtonGradient}>
-                    {registering ? (
-                      <ActivityIndicator size="small" color={COLORS.white} />
-                    ) : (
-                      <>
-                        <Ionicons name="add-circle" size={24} color={COLORS.white} />
-                        <Text style={styles.registerButtonText}>
-                          {hasCurrentPlan ? "Thay thế kế hoạch hiện tại" : "Đăng ký kế hoạch này"}
-                        </Text>
-                      </>
-                    )}
-                  </LinearGradient>
-                </TouchableOpacity>
-              ) : plan.status === "ongoing" ? (
-                // Status update buttons for ongoing plans
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity
-                    style={[styles.actionButton, styles.completeButton]}
-                    onPress={() => handleStatusUpdate("completed")}
-                    disabled={updating}
-                  >
-                    {updating ? (
-                      <ActivityIndicator size="small" color={COLORS.white} />
-                    ) : (
-                      <>
-                        <Ionicons name="checkmark-circle" size={20} color={COLORS.white} />
-                        <Text style={styles.actionButtonText}>Hoàn thành</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.actionButton, styles.failButton]}
-                    onPress={() => handleStatusUpdate("failed")}
-                    disabled={updating}
-                  >
-                    {updating ? (
-                      <ActivityIndicator size="small" color={COLORS.white} />
-                    ) : (
-                      <>
-                        <Ionicons name="close-circle" size={20} color={COLORS.white} />
-                        <Text style={styles.actionButtonText}>Đánh dấu thất bại</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                // Show register button for any plan that could be a template, even if status is not explicitly "template"
-                <TouchableOpacity style={styles.registerButton} onPress={handleRegisterPlan} disabled={registering}>
-                  <LinearGradient colors={[COLORS.primary, COLORS.accent]} style={styles.registerButtonGradient}>
-                    {registering ? (
-                      <ActivityIndicator size="small" color={COLORS.white} />
-                    ) : (
-                      <>
-                        <Ionicons name="add-circle" size={24} color={COLORS.white} />
-                        <Text style={styles.registerButtonText}>
-                          {hasCurrentPlan ? "Thay thế kế hoạch hiện tại" : "Đăng ký kế hoạch này"}
-                        </Text>
-                      </>
-                    )}
-                  </LinearGradient>
-                </TouchableOpacity>
-              )}
-            </View>
+            <View style={styles.actionSection}>{renderActionButtons()}</View>
           </View>
         </View>
       </ScrollView>
@@ -812,29 +794,30 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginLeft: 12,
   },
-  actionButtons: {
+  statusInfo: {
     flexDirection: "row",
-    gap: 12,
-  },
-  actionButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    alignItems: "flex-start",
+    backgroundColor: COLORS.white,
+    padding: 20,
     borderRadius: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  completeButton: {
-    backgroundColor: COLORS.success,
+  statusInfoContent: {
+    flex: 1,
+    marginLeft: 12,
   },
-  failButton: {
-    backgroundColor: COLORS.error,
-  },
-  actionButtonText: {
+  statusInfoTitle: {
     fontSize: 16,
-    color: COLORS.white,
     fontWeight: "600",
-    marginLeft: 8,
+    marginBottom: 4,
+  },
+  statusInfoDescription: {
+    fontSize: 14,
+    color: COLORS.lightText,
+    lineHeight: 20,
   },
 })

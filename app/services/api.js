@@ -106,6 +106,50 @@ export const fetchBlogs = () => API.get("/blogs")
 export const fetchBlogBySlug = (slug) => API.get(`/blogs/${slug}`)
 export const likeBlog = (blogId) => API.post(`/blogs/${blogId}/like`)
 export const addComment = (blogId, content) => API.post(`/blogs/${blogId}/comments`, { text: content })
+export const createBlog = (data) => {
+  console.log("📡 Creating blog at /blogs")
+  console.log("📤 Blog data:", data)
+  return API.post("/blogs", data)
+}
+
+export const updateBlog = (blogId, data) => {
+  console.log(`📡 Updating blog at /blogs/${blogId}`)
+  console.log("📤 Update data:", data)
+  return API.put(`/blogs/${blogId}`, data)
+}
+
+export const deleteBlog = (blogId) => {
+  console.log(`📡 Deleting blog /blogs/${blogId}`)
+  return API.delete(`/blogs/${blogId}`)
+}
+
+export const getBlogById = (blogId) => {
+  console.log(`📡 Getting blog by ID /blogs/${blogId}`)
+  return API.get(`/blogs/${blogId}`)
+}
+
+export const getBlogByIdOrSlug = async (identifier) => {
+  console.log(`📡 Getting blog by identifier: ${identifier}`)
+
+  // Thử với ID trước
+  try {
+    const response = await API.get(`/blogs/${identifier}`)
+    console.log("✅ Found blog by ID:", response.data)
+    return response
+  } catch (error) {
+    console.log("❌ Not found by ID, trying slug...")
+    // Nếu không tìm thấy bằng ID, thử bằng slug
+    try {
+      const response = await fetchBlogBySlug(identifier)
+      console.log("✅ Found blog by slug:", response.data)
+      return response
+    } catch (slugError) {
+      console.log("❌ Not found by slug either")
+      throw slugError
+    }
+  }
+}
+
 
 // ===== CHAT ENDPOINTS =====
 export const fetchUsers = () => {
@@ -308,5 +352,118 @@ export const updateUserInfo = (data) => updateProfile(data) // Alias
 export const getMyFollowers = () => API.get("/users/my-followers") // If this endpoint exists
 export const getMyFollowing = () => API.get("/users/my-following") // If this endpoint exists
 export const uploadAvatar = (formData) => updateAvatar(formData) // Alias
+
+
+// ===== QUIT PROGRESS ENDPOINTS =====
+
+// Create daily quit progress
+export const createQuitProgress = (data) => {
+  console.log("📡 Creating quit progress at /quitprogress")
+  console.log("📤 Progress data:", data)
+  return API.post("/quitprogress", data)
+}
+
+// Get quit progress for a plan
+export const getQuitProgress = (planId, params = {}) => {
+  console.log(`📡 Getting quit progress for plan ${planId}`)
+  return API.get("/quitprogress", { params: { ...params, planId } })
+}
+
+// ===== QUIT PLAN STAGES ENDPOINTS =====
+
+// Get stages for a quit plan
+export const getQuitPlanStages = (quitPlanId, params = {}) => {
+  console.log(`📡 Getting stages for quit plan ${quitPlanId}`)
+  return API.get(`/plans/quitplans/${quitPlanId}/stages`, { params })
+}
+
+// Create stage for quit plan template (coach only)
+export const createQuitPlanStage = (quitPlanId, data) => {
+  console.log(`📡 Creating stage for quit plan ${quitPlanId}`)
+  console.log("📤 Stage data:", data)
+  return API.post(`/plans/quitplans/${quitPlanId}/stages`, data)
+}
+
+// Update stage
+export const updateQuitPlanStage = (quitPlanId, stageId, data) => {
+  console.log(`📡 Updating stage ${stageId} for quit plan ${quitPlanId}`)
+  return API.put(`/plans/quitplans/${quitPlanId}/stages/${stageId}`, data)
+}
+
+// Delete stage
+export const deleteQuitPlanStage = (quitPlanId, stageId) => {
+  console.log(`📡 Deleting stage ${stageId} for quit plan ${quitPlanId}`)
+  return API.delete(`/plans/quitplans/${quitPlanId}/stages/${stageId}`)
+}
+
+export const cancelQuitPlan = (reason) => {
+  console.log(`📡 Cancelling current quit plan`)
+  console.log("📤 Cancellation reason:", reason)
+  return API.post("/plans/quitplans/cancel", { reason })
+}
+
+// Complete a quit plan (if there's a separate endpoint for this)
+export const completeQuitPlan = (planId) => {
+  console.log(`📡 Completing quit plan ${planId}`)
+  return API.patch(`/plans/quitplans/${planId}/complete`)
+}
+
+// ===== BADGES ENDPOINTS =====
+
+// Award badge to quit plan
+export const awardBadge = (quitPlanId, data) => {
+  console.log(`📡 Awarding badge to quit plan ${quitPlanId}`)
+  console.log("📤 Badge data:", data)
+  return API.post(`/plans/quitplans/${quitPlanId}/badges`, data)
+}
+
+// Get badges for quit plan
+export const getQuitPlanBadges = (quitPlanId) => {
+  console.log(`📡 Getting badges for quit plan ${quitPlanId}`)
+  return API.get(`/plans/quitplans/${quitPlanId}/badges`)
+}
+
+// ===== CUSTOM QUIT PLAN ENDPOINTS =====
+
+// Create custom quit plan request (User only)
+export const createCustomQuitPlanRequest = (data) => {
+  console.log("📡 Creating custom quit plan request")
+  console.log("📤 Request data:", data)
+  return API.post("/plans/quitplans/custom", data)
+}
+
+// Get custom quit plan requests (Coach only)
+export const getCustomQuitPlanRequests = (params = {}) => {
+  console.log("📡 Getting custom quit plan requests")
+  console.log("📤 Params:", params)
+  return API.get("/plans/quitplans/custom", { params })
+}
+
+// Get approved custom quit plans (Coach/User/Admin)
+export const getApprovedCustomQuitPlans = (params = {}) => {
+  console.log("📡 Getting approved custom quit plans")
+  console.log("📤 Params:", params)
+  return API.get("/plans/quitplans/custom/approved", { params })
+}
+
+// Approve custom quit plan request (Coach only)
+export const approveCustomQuitPlanRequest = (requestId, data) => {
+  console.log(`📡 Approving custom quit plan request ${requestId}`)
+  console.log("📤 Approval data:", data)
+  return API.post(`/plans/quitplans/custom/${requestId}/approve`, data)
+}
+
+// Reject custom quit plan request (Coach only)
+export const rejectCustomQuitPlanRequest = (requestId, reason) => {
+  console.log(`📡 Rejecting custom quit plan request ${requestId}`)
+  console.log("📤 Rejection reason:", reason)
+  return API.post(`/plans/quitplans/custom/${requestId}/reject`, { reason })
+}
+
+API.createCustomQuitPlanRequest = createCustomQuitPlanRequest
+API.getCustomQuitPlanRequests = getCustomQuitPlanRequests
+API.getApprovedCustomQuitPlans = getApprovedCustomQuitPlans
+API.approveCustomQuitPlanRequest = approveCustomQuitPlanRequest
+API.rejectCustomQuitPlanRequest = rejectCustomQuitPlanRequest
 
 export default API

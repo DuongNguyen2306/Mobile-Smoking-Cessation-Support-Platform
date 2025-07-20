@@ -13,12 +13,13 @@ import {
   SafeAreaView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native"
-import { followUser, getFollowers, getFollowing, unfollowUser } from "./services/api"
+import { followUser, getFollowers, getFollowing, getProfile, unfollowUser } from "./services/api"
 
-// Color constants
+// Hằng số màu sắc
 const COLORS = {
   primary: "#4CAF50",
   secondary: "#2E7D32",
@@ -27,6 +28,15 @@ const COLORS = {
   background: "#F8FFF8",
   lightBackground: "#F1F8E9",
   white: "#FFFFFF",
+}
+
+// Hàm debounce để chống nhấn liên tục
+const debounce = (func, wait) => {
+  let timeout
+  return (...args) => {
+    clearTimeout(timeout)
+    timeout = setTimeout(() => func(...args), wait)
+  }
 }
 
 // Hàm lấy danh sách following từ AsyncStorage
@@ -60,6 +70,9 @@ export default function FollowListScreen() {
   const [followLoading, setFollowLoading] = useState({})
   const [toastMessage, setToastMessage] = useState(null)
   const [followAnimations] = useState({})
+  const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(true)
+  const [searchQuery, setSearchQuery] = useState("")
 
   // Hiển thị thông báo tạm thời
   const showToast = (message) => {
@@ -86,77 +99,160 @@ export default function FollowListScreen() {
     ]).start()
   }
 
+  // Kiểm tra token hết hạn khi tải màn hình
   useEffect(() => {
-    if (userId) {
-      loadFollowData()
+    const checkTokenExpiration = async () => {
+      try {
+        await getProfile()
+      } catch (error) {
+        if (error.response?.status === 401) {
+          showToast("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.")
+          await AsyncStorage.removeItem("token")
+          await AsyncStorage.removeItem("user")
+          router.replace("/login")
+        }
+      }
+    }
+    checkTokenExpiration()
+  }, [])
+
+  // Tải dữ liệu followers/following
+  useEffect(() => {
+    let isMounted = true
+    const initializeData = async () => {
+      // Tải danh sách following từ AsyncStorage
+      const storedFollowing = await getStoredFollowing()
+      setFollowing(storedFollowing.map(id => ({ _id: id, userName: "Loading..." })))
+
+      if (userId) {
+        setPage(1)
+        setHasMore(true)
+        await loadFollowData()
+      }
+    }
+    initializeData().then(() => {
+      if (!isMounted) return
+    })
+    return () => {
+      isMounted = false
     }
   }, [userId, activeTab])
 
-  const loadFollowData = async () => {
-    try {
-      setLoading(true)
-      console.log(`🔍 Loading ${activeTab} for user:`, userId)
+  const loadFollowData = async (isLoadMore = false) => {
+    if (!hasMore && isLoadMore) return
 
+    try {
+      setLoading(!isLoadMore)
+      const currentPage = isLoadMore ? page + 1 : 1
+      console.log(`🔍 Loading ${activeTab} for user:`, userId, `Page: ${currentPage}`)
+
+      let validData = []
       if (activeTab === "followers") {
-        const response = await getFollowers(userId, { page: 1, limit: 1000 })
+        const response = await getFollowers(userId, { page: currentPage, limit: 20 })
         console.log("📡 Raw followers response:", JSON.stringify(response.data, null, 2))
         const data = response.data?.data?.followers || response.data?.followers || []
-        console.log("👥 Followers data:", data)
-        setFollowers(Array.isArray(data) ? data : [])
+        validData = Array.isArray(data)
+          ? data.filter((user) => user && user._id && user.userName)
+          : []
+        console.log("👥 Followers data:", validData)
+        setFollowers((prev) => (isLoadMore ? [...prev, ...validData] : validData))
+        setHasMore(data.length === 20)
       } else {
-        const response = await getFollowing(userId, { page: 1, limit: 1000 })
+        const response = await getFollowing(userId, { page: currentPage, limit: 20 })
         console.log("📡 Raw following response:", JSON.stringify(response.data, null, 2))
         const data = response.data?.data?.following || response.data?.following || []
-        console.log("👤 Following data:", data)
-        setFollowing(Array.isArray(data) ? data : [])
+        validData = Array.isArray(data)
+          ? data.filter((user) => user && user._id && user.userName)
+          : []
+        console.log("👤 Following data:", validData)
+        setFollowing((prev) => (isLoadMore ? [...prev, ...validData] : validData))
+        setHasMore(data.length === 20)
 
-        // Đồng bộ AsyncStorage với server
-        const followingIds = data.map((user) => user._id).filter(Boolean)
+        // Đồng bộ AsyncStorage
+        const followingIds = validData.map((user) => user._id).filter(Boolean)
         await storeFollowing(followingIds)
       }
+      setPage(currentPage)
     } catch (error) {
       console.error("❌ Error loading follow data:", error.message)
       showToast("Không thể tải danh sách. Vui lòng thử lại.")
+      if (activeTab === "followers") {
+        setFollowers((prev) => (isLoadMore ? prev : []))
+      } else {
+        setFollowing((prev) => (isLoadMore ? prev : []))
+      }
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
   }
 
-  const handleFollowToggle = async (targetUserId, isCurrentlyFollowing) => {
-  console.log("👉 Toggle follow for", targetUserId)
-  if (followLoading[targetUserId]) return
-
-  setFollowLoading((prev) => ({ ...prev, [targetUserId]: true }))
-  triggerFollowAnimation(targetUserId)
-
-  try {
-    if (isCurrentlyFollowing) {
-      console.log("📤 Sending UNFOLLOW request...")
-      await unfollowUser(targetUserId)
-    } else {
-      console.log("📤 Sending FOLLOW request...")
-      await followUser(targetUserId)
+  // Hàm loadFollowCounts (giả định)
+  const loadFollowCounts = async (targetUserId) => {
+    try {
+      const followersResponse = await getFollowers(targetUserId, { page: 1, limit: 20 })
+      const followingResponse = await getFollowing(targetUserId, { page: 1, limit: 20 })
+      const followersData = followersResponse.data?.data?.followers || followersResponse.data?.followers || []
+      const followingData = followingResponse.data?.data?.following || followingResponse.data?.following || []
+      setFollowers(followersData)
+      setFollowing(followingData)
+    } catch (error) {
+      console.error("❌ Error loading follow counts:", error.message)
     }
-
-    // ✅ Reload lại danh sách FOLLOW/UNFOLLOW sau khi thay đổi
-    await loadFollowData()
-
-  } catch (error) {
-    console.error("❌ API follow/unfollow failed:", error.message)
-    console.error("📦 Full error:", error.response?.data || error)
-    showToast("Thao tác thất bại. Vui lòng thử lại.")
-  } finally {
-    setFollowLoading((prev) => ({ ...prev, [targetUserId]: false }))
   }
-}
 
+  // Hàm handleFollow tích hợp
+  const handleFollow = async (targetUserId, isFollowing) => {
+    if (!targetUserId || followLoading[targetUserId]) return
 
+    setFollowLoading((prev) => ({ ...prev, [targetUserId]: true }))
+    triggerFollowAnimation(targetUserId)
+
+    // Lưu trạng thái trước để hoàn nguyên nếu lỗi
+    const previousFollowers = [...followers]
+    const previousFollowing = [...following]
+    let followingList = await getStoredFollowing()
+
+    try {
+      if (isFollowing) {
+        console.log("📤 Sending UNFOLLOW request...")
+        followingList = followingList.filter((id) => id !== targetUserId)
+        await unfollowUser(targetUserId)
+        showToast("Đã bỏ theo dõi 👋")
+      } else {
+        console.log("📤 Sending FOLLOW request...")
+        followingList.push(targetUserId)
+        await followUser(targetUserId)
+        showToast("Đã theo dõi 🎉")
+      }
+
+      // Cập nhật AsyncStorage
+      await storeFollowing(followingList)
+
+      // Làm mới danh sách để đồng bộ
+      await loadFollowData()
+    } catch (error) {
+      console.error("❌ Error toggling follow:", error.message)
+      console.error("📦 Full error:", error.response?.data || error)
+      if (error.response?.status === 400 && error.response?.data?.message === "Already following this user") {
+        console.log("🔄 User already followed, refreshing data...")
+        await loadFollowData()
+      } else {
+        setFollowers(previousFollowers)
+        setFollowing(previousFollowing)
+        showToast("Có lỗi xảy ra khi cập nhật theo dõi.")
+      }
+    } finally {
+      setFollowLoading((prev) => ({ ...prev, [targetUserId]: false }))
+    }
+  }
+
+  const debouncedHandleFollow = debounce(handleFollow, 300)
 
   const renderUserItem = ({ item }) => {
-    const user = item // Expecting { _id, userName, profilePicture, role }
-    const isFollowing = following.some((f) => f._id === user._id);
-
+    const user = item
+    const isFollowing = following.some((f) => f._id === user._id)
+    console.log(`🔍 Checking isFollowing for ${user.userName}:`, isFollowing)
 
     return (
       <TouchableOpacity
@@ -180,7 +276,7 @@ export default function FollowListScreen() {
             </View>
             <TouchableOpacity
               style={[styles.followButton, isFollowing && styles.followingButton, followLoading[user._id] && styles.followButtonDisabled]}
-              onPress={() => handleFollowToggle(user._id, isFollowing)}
+              onPress={() => debouncedHandleFollow(user._id, isFollowing)}
               disabled={followLoading[user._id]}
             >
               {followLoading[user._id] ? (
@@ -198,6 +294,10 @@ export default function FollowListScreen() {
   }
 
   const currentData = activeTab === "followers" ? followers : following
+  console.log("🔍 currentData before filter:", currentData)
+  const filteredData = (Array.isArray(currentData) ? currentData : []).filter((user) =>
+    user.userName.toLowerCase().includes(searchQuery.toLowerCase())
+  )
 
   return (
     <SafeAreaView style={styles.container}>
@@ -235,14 +335,20 @@ export default function FollowListScreen() {
           </Text>
         </TouchableOpacity>
       </View>
-      {loading ? (
+      <TextInput
+        style={styles.searchInput}
+        placeholder="Tìm kiếm người dùng..."
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+      />
+      {loading && page === 1 ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={COLORS.primary} />
           <Text style={styles.loadingText}>Đang tải...</Text>
         </View>
       ) : (
         <FlatList
-          data={currentData}
+          data={filteredData}
           renderItem={renderUserItem}
           keyExtractor={(item, index) => item._id?.toString() || index.toString()}
           contentContainerStyle={styles.listContainer}
@@ -250,8 +356,13 @@ export default function FollowListScreen() {
           refreshing={refreshing}
           onRefresh={() => {
             setRefreshing(true)
+            setPage(1)
+            setHasMore(true)
             loadFollowData()
           }}
+          onEndReached={() => hasMore && loadFollowData(true)}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={hasMore && !loading ? <ActivityIndicator size="small" color={COLORS.primary} /> : null}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="people-outline" size={64} color={COLORS.lightText} />
@@ -326,6 +437,14 @@ const styles = StyleSheet.create({
   },
   activeTabText: {
     color: COLORS.white,
+  },
+  searchInput: {
+    margin: 20,
+    padding: 10,
+    backgroundColor: COLORS.white,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.lightText,
   },
   loadingContainer: {
     flex: 1,

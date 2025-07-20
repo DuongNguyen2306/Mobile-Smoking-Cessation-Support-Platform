@@ -1,21 +1,25 @@
 "use client"
 
 import { Ionicons } from "@expo/vector-icons"
+import AsyncStorage from "@react-native-async-storage/async-storage"
+import { useFocusEffect } from "@react-navigation/native"
 import { LinearGradient } from "expo-linear-gradient"
 import { useRouter } from "expo-router"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   FlatList,
   RefreshControl,
   SafeAreaView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native"
-import { fetchBlogs } from "../services/api"
+import { deleteBlog, fetchBlogs } from "../services/api"
 
 const { width } = Dimensions.get("window")
 
@@ -24,23 +28,63 @@ export default function BlogsScreen() {
   const [blogs, setBlogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [currentUser, setCurrentUser] = useState(null)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [filteredBlogs, setFilteredBlogs] = useState([])
+  const [showSearch, setShowSearch] = useState(false)
+
+  useEffect(() => {
+    loadBlogs()
+    getCurrentUser()
+  }, [])
+
+  useEffect(() => {
+    if (searchQuery.trim() === "") {
+      setFilteredBlogs(blogs)
+    } else {
+      const filtered = blogs.filter(
+        (blog) =>
+          blog.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          blog.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          blog.user?.userName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          blog.user?.name?.toLowerCase().includes(searchQuery.toLowerCase()),
+      )
+      setFilteredBlogs(filtered)
+    }
+  }, [blogs, searchQuery])
+
+  useFocusEffect(
+    useCallback(() => {
+      loadBlogs()
+    }, []),
+  )
+
+  const getCurrentUser = async () => {
+    try {
+      const userData = await AsyncStorage.getItem("user")
+      if (userData) {
+        const user = JSON.parse(userData)
+        setCurrentUser(user)
+        console.log("👤 Current user loaded:", user)
+      }
+    } catch (error) {
+      console.log("❌ Lỗi lấy thông tin user:", error)
+    }
+  }
 
   const loadBlogs = async () => {
     try {
       const res = await fetchBlogs()
-      console.log("Danh sách blog từ API:", res.data.data.blogs)
-      setBlogs(res.data.data.blogs || [])
+      console.log("✅ Danh sách blog từ API:", res.data)
+      setBlogs(res.data.data?.blogs || res.data.blogs || res.data || [])
     } catch (err) {
-      console.log("Lỗi tải blogs:", err)
+      console.log("❌ Lỗi tải blogs:", err)
+      console.log("❌ Chi tiết lỗi:", err.response?.data)
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
   }
-
-  useEffect(() => {
-    loadBlogs()
-  }, [])
 
   const onRefresh = () => {
     setRefreshing(true)
@@ -54,6 +98,70 @@ export default function BlogsScreen() {
       month: "2-digit",
       year: "numeric",
     })
+  }
+
+  const handleDeleteBlog = (blogId, blogTitle) => {
+    Alert.alert("Xác nhận xóa", `Bạn có chắc chắn muốn xóa bài viết "${blogTitle}"?`, [
+      {
+        text: "Hủy",
+        style: "cancel",
+      },
+      {
+        text: "Xóa",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            console.log("🗑️ Đang xóa blog với ID:", blogId)
+            await deleteBlog(blogId)
+
+            // Cập nhật state ngay lập tức
+            setBlogs((prevBlogs) => prevBlogs.filter((blog) => (blog._id || blog.id) !== blogId))
+
+            console.log("✅ Xóa blog thành công")
+            Alert.alert("Thành công", "Bài viết đã được xóa thành công!")
+          } catch (error) {
+            console.error("❌ Lỗi xóa blog:", error)
+            const errorMessage = error.response?.data?.message || "Không thể xóa bài viết. Vui lòng thử lại."
+            Alert.alert("Lỗi", errorMessage)
+          }
+        },
+      },
+    ])
+  }
+
+  const handleEditBlog = (blog) => {
+    const blogId = blog._id || blog.id
+    const slug = blog.slug
+
+    console.log("✏️ Editing blog:")
+    console.log("📝 Blog object:", blog)
+    console.log("🆔 Blog ID:", blogId)
+    console.log("🔗 Blog slug:", slug)
+
+    // Truyền cả blogId và slug để đảm bảo
+    if (blogId) {
+      router.push(`/editBlog?blogId=${blogId}&slug=${slug || ""}`)
+    } else if (slug) {
+      router.push(`/editBlog?slug=${slug}`)
+    } else {
+      Alert.alert("Lỗi", "Không tìm thấy ID hoặc slug của bài viết")
+    }
+  }
+
+  const isOwner = (blog) => {
+    if (!currentUser || !blog.user) {
+      return false
+    }
+
+    const currentUserId = currentUser._id || currentUser.id
+    const blogUserId = blog.user._id || blog.user.id || blog.userId
+
+    console.log("🔍 Kiểm tra quyền sở hữu:")
+    console.log("👤 Current User ID:", currentUserId)
+    console.log("✍️ Blog User ID:", blogUserId)
+    console.log("🔐 Is Owner:", currentUserId === blogUserId)
+
+    return currentUserId === blogUserId
   }
 
   const renderBlogCard = ({ item, index }) => (
@@ -71,19 +179,50 @@ export default function BlogsScreen() {
             <Ionicons name="leaf" size={12} color="#4CAF50" />
             <Text style={styles.categoryText}>Sức khỏe</Text>
           </View>
-          <Text style={styles.dateText}>{item.createdAt ? formatDate(item.createdAt) : ""}</Text>
+          <View style={styles.cardActions}>
+            <Text style={styles.dateText}>{item.createdAt ? formatDate(item.createdAt) : ""}</Text>
+            {isOwner(item) && (
+              <View style={styles.actionButtons}>
+                <TouchableOpacity
+                  style={styles.editButton}
+                  onPress={(e) => {
+                    e.stopPropagation()
+                    console.log("✏️ Chỉnh sửa blog của mình:", item._id || item.id)
+                    handleEditBlog(item)
+                  }}
+                >
+                  <Ionicons name="create-outline" size={16} color="#FF9800" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.deleteButton}
+                  onPress={(e) => {
+                    e.stopPropagation()
+                    console.log("🗑️ Xóa blog của mình:", item._id || item.id)
+                    handleDeleteBlog(item._id || item.id, item.title)
+                  }}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#F44336" />
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         </View>
+
+        {isOwner(item) && (
+          <View style={styles.ownerIndicator}>
+            <Ionicons name="person-circle" size={14} color="#4CAF50" />
+            <Text style={styles.ownerText}>Bài viết của bạn</Text>
+          </View>
+        )}
 
         <Text style={styles.cardTitle} numberOfLines={2}>
           {item.title}
         </Text>
-
         {item.description && (
           <Text style={styles.cardDescription} numberOfLines={3}>
             {item.description.replace(/<[^>]*>/g, "")}
           </Text>
         )}
-
         <View style={styles.cardFooter}>
           <View style={styles.authorInfo}>
             <View style={styles.authorAvatar}>
@@ -91,7 +230,6 @@ export default function BlogsScreen() {
             </View>
             <Text style={styles.authorName}>{item.user?.userName || item.user?.name || "Tác giả"}</Text>
           </View>
-
           <View style={styles.statsContainer}>
             <View style={styles.statItem}>
               <Ionicons name="heart-outline" size={14} color="#666" />
@@ -103,7 +241,6 @@ export default function BlogsScreen() {
             </View>
           </View>
         </View>
-
         <View style={styles.readMoreContainer}>
           <Text style={styles.readMoreText}>Đọc tiếp</Text>
           <Ionicons name="arrow-forward" size={16} color="#4CAF50" />
@@ -138,23 +275,54 @@ export default function BlogsScreen() {
               <Text style={styles.headerSubtitle}>Khám phá hành trình bỏ thuốc lá</Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.searchButton}>
-            <Ionicons name="search" size={20} color="#FFFFFF" />
-          </TouchableOpacity>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity style={styles.searchButton} onPress={() => setShowSearch(!showSearch)}>
+              <Ionicons name="search" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.createButton} onPress={() => router.push("/createBlog")}>
+              <Ionicons name="add" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
         </View>
       </LinearGradient>
+
+      {showSearch && (
+        <View style={styles.searchContainer}>
+          <View style={styles.searchInputContainer}>
+            <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Tìm kiếm bài viết, tác giả..."
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoFocus={showSearch}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery("")} style={styles.clearButton}>
+                <Ionicons name="close-circle" size={20} color="#666" />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
 
       <View style={styles.content}>
         {blogs.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Ionicons name="document-text-outline" size={64} color="#CCCCCC" />
             <Text style={styles.emptyTitle}>Chưa có bài viết nào</Text>
-            <Text style={styles.emptySubtitle}>Hãy quay lại sau để đọc những bài viết mới nhất</Text>
+            <Text style={styles.emptySubtitle}>Hãy tạo bài viết đầu tiên của bạn</Text>
+            <TouchableOpacity style={styles.createFirstButton} onPress={() => router.push("/createBlog")}>
+              <LinearGradient colors={["#4CAF50", "#2E7D32"]} style={styles.createFirstGradient}>
+                <Ionicons name="add-circle" size={20} color="#FFFFFF" />
+                <Text style={styles.createFirstText}>Tạo bài viết đầu tiên</Text>
+              </LinearGradient>
+            </TouchableOpacity>
           </View>
         ) : (
           <FlatList
-            data={blogs}
-            keyExtractor={(item) => item._id?.toString() || item.slug?.toString()}
+            data={filteredBlogs}
+            keyExtractor={(item) => item._id?.toString() || item.id?.toString() || item.slug?.toString()}
             renderItem={renderBlogCard}
             contentContainerStyle={styles.list}
             showsVerticalScrollIndicator={false}
@@ -168,6 +336,7 @@ export default function BlogsScreen() {
   )
 }
 
+// Styles remain the same...
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -227,11 +396,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "rgba(255, 255, 255, 0.8)",
   },
+  headerButtons: {
+    flexDirection: "row",
+    gap: 8,
+  },
   searchButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
     backgroundColor: "rgba(255, 255, 255, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  createButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -275,9 +456,34 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     marginLeft: 4,
   },
+  cardActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   dateText: {
     fontSize: 12,
     color: "#888",
+    marginRight: 8,
+  },
+  actionButtons: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  editButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(255, 152, 0, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  deleteButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(244, 67, 54, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   cardTitle: {
     fontSize: 18,
@@ -358,5 +564,65 @@ const styles = StyleSheet.create({
     color: "#888",
     textAlign: "center",
     lineHeight: 20,
+    marginBottom: 24,
+  },
+  createFirstButton: {
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  createFirstGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+  },
+  createFirstText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFFFFF",
+    marginLeft: 8,
+  },
+  ownerIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(76, 175, 80, 0.1)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: "flex-start",
+    marginBottom: 8,
+  },
+  ownerText: {
+    fontSize: 11,
+    color: "#4CAF50",
+    fontWeight: "500",
+    marginLeft: 4,
+  },
+  searchContainer: {
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E0E0E0",
+  },
+  searchInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F5F5F5",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: "#333",
+    paddingVertical: 4,
+  },
+  clearButton: {
+    marginLeft: 8,
   },
 })

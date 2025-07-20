@@ -1,8 +1,10 @@
-import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+"use client"
+
+import { Ionicons } from "@expo/vector-icons"
+import AsyncStorage from "@react-native-async-storage/async-storage"
+import { LinearGradient } from "expo-linear-gradient"
+import { useFocusEffect, useRouter } from "expo-router"
+import { useCallback, useEffect, useState } from "react"
 import {
   ActivityIndicator,
   Alert,
@@ -20,131 +22,210 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-} from "react-native";
-import { getFollowers, getFollowing, getProfile, updateProfile } from "../services/api";
+} from "react-native"
+import {
+  awardBadge,
+  cancelQuitPlan,
+  getCurrentQuitPlan,
+  getFollowers,
+  getFollowing,
+  getProfile,
+  getQuitPlanBadges,
+  getQuitProgress,
+  updateProfile,
+} from "../services/api"
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const HEADER_HEIGHT = 280;
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window")
+const HEADER_HEIGHT = 280
 
 const getStoredFollowing = async () => {
   try {
-    const followingData = await AsyncStorage.getItem("following");
-    return followingData ? JSON.parse(followingData) : [];
+    const followingData = await AsyncStorage.getItem("following")
+    return followingData ? JSON.parse(followingData) : []
   } catch (err) {
-    console.error("Lỗi khi lấy danh sách following từ AsyncStorage:", err);
-    return [];
+    console.error("Lỗi khi lấy danh sách following từ AsyncStorage:", err)
+    return []
   }
-};
+}
 
 const storeFollowing = async (followingList) => {
   try {
-    await AsyncStorage.setItem("following", JSON.stringify(followingList));
+    await AsyncStorage.setItem("following", JSON.stringify(followingList))
   } catch (err) {
-    console.error("Lỗi khi lưu danh sách following vào AsyncStorage:", err);
+    console.error("Lỗi khi lưu danh sách following vào AsyncStorage:", err)
   }
-};
+}
 
 export default function ProfileScreen() {
-  const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [followersCount, setFollowersCount] = useState(0);
-  const [followingCount, setFollowingCount] = useState(0);
-  const [followersList, setFollowersList] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState(null);
-  const [editing, setEditing] = useState(false);
-  const [editData, setEditData] = useState({});
-  const [scrollY] = useState(new Animated.Value(0));
+  const router = useRouter()
+  const [user, setUser] = useState(null)
+  const [followersCount, setFollowersCount] = useState(0)
+  const [followingCount, setFollowingCount] = useState(0)
+  const [followersList, setFollowersList] = useState([])
+  const [currentPlan, setCurrentPlan] = useState(null)
+  const [badges, setBadges] = useState([])
+  const [progress, setProgress] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState(null)
+  const [editing, setEditing] = useState(false)
+  const [editData, setEditData] = useState({})
+  const [scrollY] = useState(new Animated.Value(0))
+
+  const calculateProgress = (startDate, duration) => {
+    if (!startDate || !duration) return 0
+    const start = new Date(startDate)
+    const now = new Date()
+    const daysElapsed = Math.floor((now - start) / (1000 * 60 * 60 * 24))
+    const totalDays = parseInt(duration, 10)
+    const progress = totalDays > 0 ? Math.min((daysElapsed / totalDays) * 100, 100) : 0
+    return Math.round(progress)
+  }
+
+  const loadCurrentPlan = useCallback(async () => {
+    try {
+      console.log("🔍 Loading current quit plan...")
+      const response = await getCurrentQuitPlan({ headers: { "Cache-Control": "no-cache" } })
+      console.log("API response for getCurrentQuitPlan:", response.data)
+      if (response.status === 200 && response.data) {
+        const plan = response.data.data || response.data
+        console.log("Parsed plan data:", plan)
+        if (plan && plan.status !== "completed" && plan.status !== "deleted") {
+          setCurrentPlan(plan)
+          console.log("✅ Current plan loaded:", plan)
+          if (plan._id) {
+            try {
+              const progressResponse = await getQuitProgress(plan._id)
+              if (progressResponse.status === 200 && progressResponse.data) {
+                const progressData = progressResponse.data.data || progressResponse.data || []
+                const completedDays = progressData.length
+                const totalDays = parseInt(plan.duration, 10)
+                const calcProgress = totalDays > 0 ? Math.min((completedDays / totalDays) * 100, 100) : 0
+                setProgress(Math.round(calcProgress))
+                console.log("Progress calculated from progress data:", calcProgress)
+              } else {
+                const calcProgress = calculateProgress(plan.startDate, plan.duration)
+                setProgress(calcProgress)
+                console.log("Progress calculated from startDate and duration:", calcProgress)
+              }
+            } catch (progressError) {
+              console.log("No progress data found, using startDate and duration:", progressError)
+              const calcProgress = calculateProgress(plan.startDate, plan.duration)
+              setProgress(calcProgress)
+            }
+            try {
+              const badgesResponse = await getQuitPlanBadges(plan._id)
+              if (badgesResponse.status === 200 && badgesResponse.data) {
+                setBadges(badgesResponse.data.data || badgesResponse.data || [])
+              }
+            } catch (badgeError) {
+              console.log("No badges found for current plan")
+              setBadges([])
+            }
+          }
+        } else {
+          console.log("Plan is completed or deleted, not showing in profile")
+          setCurrentPlan(null)
+          setBadges([])
+          setProgress(0)
+        }
+      } else {
+        console.log("No current plan found, setting to null")
+        setCurrentPlan(null)
+        setBadges([])
+        setProgress(0)
+      }
+    } catch (error) {
+      console.log("Error loading current plan or no plan found:", error.response?.status)
+      setCurrentPlan(null)
+      setBadges([])
+      setProgress(0)
+    }
+  }, [])
 
   const loadFollowCounts = useCallback(async (userId) => {
     try {
-      console.log("🔍 Loading follow counts for userId:", userId);
+      console.log("🔍 Loading follow counts for userId:", userId)
+      const followingList = await getStoredFollowing()
+      setFollowingCount(followingList.length)
+      console.log("🔢 Following count from AsyncStorage:", followingList.length)
 
-      // Lấy followingCount từ AsyncStorage trước
-      const followingList = await getStoredFollowing();
-      setFollowingCount(followingList.length);
-      console.log("🔢 Following count from AsyncStorage:", followingList.length);
-
-      // Gọi API để lấy followers và following
       const [followersRes, followingRes] = await Promise.allSettled([
         getFollowers(userId, { page: 1, limit: 1000 }),
         getFollowing(userId, { page: 1, limit: 1000 }),
-      ]);
+      ])
 
       if (followersRes.status === "fulfilled") {
-        const followersData = followersRes.value.data;
-        console.log("📡 Raw followers response:", JSON.stringify(followersData, null, 2));
-        let count = 0;
-        let followers = [];
+        const followersData = followersRes.value.data
+        console.log("📡 Raw followers response:", JSON.stringify(followersData, null, 2))
+        let count = 0
+        let followers = []
         if (followersData?.data?.followers && Array.isArray(followersData.data.followers)) {
-          followers = followersData.data.followers;
-          count = followers.length;
+          followers = followersData.data.followers
+          count = followers.length
         } else if (followersData?.followers && Array.isArray(followersData.followers)) {
-          followers = followersData.followers;
-          count = followers.length;
+          followers = followersData.followers
+          count = followers.length
         } else if (followersData?.data && Array.isArray(followersData.data)) {
-          followers = followersData.data;
-          count = followers.length;
+          followers = followersData.data
+          count = followers.length
         } else {
-          console.warn("⚠️ Unexpected followers data structure:", followersData);
+          console.warn("⚠️ Unexpected followers data structure:", followersData)
         }
-        console.log("👥 Parsed followers list:", followers);
-        setFollowersCount(count);
-        setFollowersList(followers);
+        console.log("👥 Parsed followers list:", followers)
+        setFollowersCount(count)
+        setFollowersList(followers)
       } else {
-        console.error("❌ Followers request failed:", followersRes.reason);
+        console.error("❌ Followers request failed:", followersRes.reason)
       }
 
       if (followingRes.status === "fulfilled") {
-        const followingData = followingRes.value.data;
-        let count = 0;
-        let serverFollowingList = [];
+        const followingData = followingRes.value.data
+        let count = 0
+        let serverFollowingList = []
         if (followingData?.data?.following) {
           serverFollowingList = Array.isArray(followingData.data.following)
             ? followingData.data.following.map((user) => user._id)
-            : [];
-          count = serverFollowingList.length;
+            : []
+          count = serverFollowingList.length
         } else if (followingData?.following) {
           serverFollowingList = Array.isArray(followingData.following)
             ? followingData.following.map((user) => user._id)
-            : [];
-          count = serverFollowingList.length;
+            : []
+          count = serverFollowingList.length
         } else if (followingData?.data && Array.isArray(followingData.data)) {
-          serverFollowingList = followingData.data.map((user) => user._id);
-          count = serverFollowingList.length;
+          serverFollowingList = followingData.data.map((user) => user._id)
+          count = serverFollowingList.length
         }
-        console.log("🔢 Following count from server:", count);
-        setFollowingCount(count);
-
-        // Đồng bộ AsyncStorage với server
-        await storeFollowing(serverFollowingList);
+        console.log("🔢 Following count from server:", count)
+        setFollowingCount(count)
+        await storeFollowing(serverFollowingList)
       } else {
-        console.error("❌ Following request failed:", followingRes.reason);
+        console.error("❌ Following request failed:", followingRes.reason)
       }
     } catch (err) {
-      console.error("❌ Error loading follow counts:", err);
-      setError("Failed to load follow counts.");
+      console.error("❌ Error loading follow counts:", err)
+      setError("Failed to load follow counts.")
     }
-  }, []);
+  }, [])
 
   const loadUserProfile = useCallback(async () => {
     try {
-      setError(null);
-      const token = await AsyncStorage.getItem("token");
+      setError(null)
+      const token = await AsyncStorage.getItem("token")
       if (!token) {
         Alert.alert("Notification", "Please log in to continue", [
           { text: "OK", onPress: () => router.replace("/(auth)/login") },
-        ]);
-        return;
+        ])
+        return
       }
 
-      console.log("🔍 Loading user profile...");
-      const response = await getProfile();
-
+      console.log("🔍 Loading user profile...")
+      const response = await getProfile()
       if (response.status === 200 && response.data) {
-        const userData = response.data.data?.user || response.data.user || response.data || {};
-        console.log("✅ Profile loaded:", JSON.stringify(userData, null, 2));
+        const userData = response.data.data?.user || response.data.user || response.data || {}
+        console.log("✅ Profile loaded:", JSON.stringify(userData, null, 2))
+
         setUser({
           id: userData.id || userData._id || null,
           userName: userData.userName || userData.name || "Not Updated",
@@ -157,68 +238,113 @@ export default function ProfileScreen() {
           phone: userData.phone || "",
           isActive: userData.isActive || false,
           createdAt: userData.createdAt || null,
-        });
+        })
 
         if (userData.id || userData._id) {
-          await loadFollowCounts(userData.id || userData._id);
+          await loadFollowCounts(userData.id || userData._id)
         }
       } else {
-        throw new Error("Invalid response format");
+        throw new Error("Invalid response format")
       }
     } catch (err) {
-      console.error("❌ Error loading profile:", err);
-      const errorMessage = err.response?.data?.message || err.message || "Failed to load profile";
-      setError(errorMessage);
-
+      console.error("❌ Error loading profile:", err)
+      const errorMessage = err.response?.data?.message || err.message || "Failed to load profile"
+      setError(errorMessage)
       if (err.response?.status === 401) {
         Alert.alert("Session Expired", "Please log in again", [
           { text: "OK", onPress: () => router.replace("/(auth)/login") },
-        ]);
+        ])
       }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      setLoading(false)
+      setRefreshing(false)
     }
-  }, [router, loadFollowCounts]);
+  }, [router, loadFollowCounts])
 
   const handleUpdateProfile = async () => {
     try {
-      setLoading(true);
-      const token = await AsyncStorage.getItem("token");
-      if (!token) throw new Error("No authentication token");
+      setLoading(true)
+      const token = await AsyncStorage.getItem("token")
+      if (!token) throw new Error("No authentication token")
 
       const updateData = {
         userName: editData.userName,
         bio: editData.bio,
         address: editData.address,
         phone: editData.phone,
-      };
+      }
 
-      console.log("🔄 Updating profile with data:", updateData);
-      const response = await updateProfile(updateData, token);
-      
+      console.log("🔄 Updating profile with data:", updateData)
+      const response = await updateProfile(updateData)
       if (response.status === 200) {
-        Alert.alert("Success", "Profile updated successfully");
-        setEditing(false);
-        await loadUserProfile();
+        Alert.alert("Success", "Profile updated successfully")
+        setEditing(false)
+        await loadUserProfile()
       }
     } catch (err) {
-      console.error("❌ Error updating profile:", err);
-      const errorMessage = err.response?.data?.message || err.message || "Failed to update profile";
-      Alert.alert("Update Failed", errorMessage);
+      console.error("❌ Error updating profile:", err)
+      const errorMessage = err.response?.data?.message || err.message || "Failed to update profile"
+      Alert.alert("Update Failed", errorMessage)
     } finally {
-      setLoading(false);
+      setLoading(false)
+    }
+  }
+
+  const handleAwardBadge = async (badgeName, badgeDescription) => {
+    if (!currentPlan?._id) {
+      Alert.alert("Lỗi", "Không tìm thấy kế hoạch hiện tại")
+      return
+    }
+
+    try {
+      const badgeData = {
+        name: badgeName,
+        description: badgeDescription,
+      }
+
+      const response = await awardBadge(currentPlan._id, badgeData)
+      if (response.status === 200 || response.status === 201) {
+        Alert.alert("🎉 Chúc mừng!", `Bạn đã nhận được badge: ${badgeName}`)
+        const badgesResponse = await getQuitPlanBadges(currentPlan._id)
+        if (badgesResponse.status === 200 && badgesResponse.data) {
+          setBadges(badgesResponse.data.data || badgesResponse.data || [])
+        }
+      }
+    } catch (error) {
+      console.error("Error awarding badge:", error)
+      Alert.alert("Lỗi", "Không thể trao badge")
+    }
+  }
+
+  const cancelCurrentPlan = async (reason) => {
+    try {
+      console.log("📡 Cancelling current quit plan with reason:", reason);
+      await cancelQuitPlan(reason);
+      console.log("✅ Plan cancelled successfully");
+      await loadCurrentPlan(); // Làm mới dữ liệu
+    } catch (error) {
+      console.error("Error cancelling plan:", error);
+      Alert.alert("Lỗi", "Không thể hủy kế hoạch: " + (error.response?.data?.message || error.message));
+      await loadCurrentPlan(); // Làm mới để kiểm tra trạng thái
     }
   };
 
   useEffect(() => {
-    loadUserProfile();
-  }, [loadUserProfile]);
+    loadUserProfile()
+    loadCurrentPlan()
+  }, [loadUserProfile, loadCurrentPlan])
+
+  useFocusEffect(
+    useCallback(() => {
+      loadUserProfile()
+      loadCurrentPlan()
+    }, [loadUserProfile, loadCurrentPlan])
+  )
 
   const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadUserProfile();
-  }, [loadUserProfile]);
+    setRefreshing(true)
+    await Promise.all([loadUserProfile(), loadCurrentPlan()])
+  }, [loadUserProfile, loadCurrentPlan])
 
   const handleLogout = async () => {
     Alert.alert("Confirm Logout", "Are you sure you want to log out?", [
@@ -228,75 +354,75 @@ export default function ProfileScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            await AsyncStorage.removeItem("token");
-            await AsyncStorage.removeItem("user");
-            await AsyncStorage.removeItem("following"); // Xóa danh sách following khi logout
-            router.replace("/(auth)/login");
+            await AsyncStorage.removeItem("token")
+            await AsyncStorage.removeItem("user")
+            await AsyncStorage.removeItem("following")
+            router.replace("/(auth)/login")
           } catch (err) {
-            console.error("Logout error:", err);
-            await AsyncStorage.removeItem("token");
-            await AsyncStorage.removeItem("user");
-            await AsyncStorage.removeItem("following");
-            router.replace("/(auth)/login");
+            console.error("Logout error:", err)
+            await AsyncStorage.removeItem("token")
+            await AsyncStorage.removeItem("user")
+            await AsyncStorage.removeItem("following")
+            router.replace("/(auth)/login")
           }
         },
       },
-    ]);
-  };
+    ])
+  }
 
   const handleViewFollowList = (type) => {
     if (user?.id) {
       router.push({
         pathname: "/followList",
         params: { userId: user.id, type },
-      });
+      })
     }
-  };
+  }
 
   const handleViewFollowerProfile = (followerId) => {
     router.push({
       pathname: "/userProfile",
       params: { userId: followerId },
-    });
-  };
+    })
+  }
 
   const handleEditProfile = () => {
-    console.log("🔧 Opening edit profile modal");
+    console.log("🔧 Opening edit profile modal")
     setEditData({
       userName: user.userName,
       bio: user.bio,
       address: user.address,
       phone: user.phone,
-    });
-    setEditing(true);
-  };
+    })
+    setEditing(true)
+  }
 
   const handleCloseEdit = () => {
-    console.log("❌ Closing edit profile modal");
-    setEditing(false);
-    setEditData({});
-  };
+    console.log("❌ Closing edit profile modal")
+    setEditing(false)
+    setEditData({})
+  }
 
   const formatDate = (dateString) => {
-    if (!dateString) return "Not Updated";
+    if (!dateString) return "Not Updated"
     return new Date(dateString).toLocaleDateString("en-US", {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
-    });
-  };
+    })
+  }
 
   const headerOpacity = scrollY.interpolate({
     inputRange: [0, HEADER_HEIGHT / 2],
     outputRange: [1, 0],
-    extrapolate: 'clamp',
-  });
+    extrapolate: "clamp",
+  })
 
   const headerTranslateY = scrollY.interpolate({
     inputRange: [0, HEADER_HEIGHT],
     outputRange: [0, -HEADER_HEIGHT / 2],
-    extrapolate: 'clamp',
-  });
+    extrapolate: "clamp",
+  })
 
   if (loading) {
     return (
@@ -309,7 +435,7 @@ export default function ProfileScreen() {
           </View>
         </LinearGradient>
       </View>
-    );
+    )
   }
 
   if (error) {
@@ -326,8 +452,8 @@ export default function ProfileScreen() {
             <TouchableOpacity
               style={styles.retryButton}
               onPress={() => {
-                setError(null);
-                loadUserProfile();
+                setError(null)
+                loadUserProfile()
               }}
             >
               <LinearGradient colors={["#4CAF50", "#66BB6A"]} style={styles.retryGradient}>
@@ -338,7 +464,7 @@ export default function ProfileScreen() {
           </View>
         </LinearGradient>
       </View>
-    );
+    )
   }
 
   if (!user) {
@@ -351,63 +477,62 @@ export default function ProfileScreen() {
           <Text style={styles.errorText}>User information not found</Text>
         </View>
       </View>
-    );
+    )
   }
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1B5E20" />
-      
+
       <Animated.ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: true }
-        )}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
         scrollEventThrottle={16}
         refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
-            onRefresh={onRefresh} 
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
             colors={["#4CAF50"]}
             tintColor="#FFFFFF"
             progressBackgroundColor="#FFFFFF"
           />
         }
       >
-        <Animated.View 
+        <Animated.View
           style={[
             styles.headerContainer,
             {
               opacity: headerOpacity,
-              transform: [{ translateY: headerTranslateY }]
-            }
+              transform: [{ translateY: headerTranslateY }],
+            },
           ]}
         >
-          <LinearGradient 
-            colors={["#1B5E20", "#2E7D32", "#4CAF50", "#66BB6A"]} 
+          <LinearGradient
+            colors={["#1B5E20", "#2E7D32", "#4CAF50", "#66BB6A"]}
             style={styles.headerGradient}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >
             <View style={styles.headerOverlay} />
+
+            <TouchableOpacity style={styles.settingsButton} onPress={handleEditProfile} activeOpacity={0.8}>
+              <View style={styles.settingsButtonBackground}>
+                <Ionicons name="settings-outline" size={24} color="#2E7D32" />
+              </View>
+            </TouchableOpacity>
+
             <View style={styles.header}>
               <View style={styles.profileSection}>
                 <View style={styles.profileImageContainer}>
                   <View style={styles.profileImageBorder}>
-                    <Image
-                      source={{ uri: user.avatar }}
-                      style={styles.profileImage}
-                      resizeMode="cover"
-                    />
+                    <Image source={{ uri: user.avatar }} style={styles.profileImage} resizeMode="cover" />
                   </View>
                   <View style={styles.statusBadge}>
                     <Ionicons name="checkmark-circle" size={28} color="#4CAF50" />
                   </View>
                   <View style={styles.onlineIndicator} />
                 </View>
-
                 <View style={styles.userInfo}>
                   <Text style={styles.userName}>{user.userName}</Text>
                   <Text style={styles.userEmail}>{user.email}</Text>
@@ -416,25 +541,14 @@ export default function ProfileScreen() {
                     <Text style={styles.badgeText}>Verified</Text>
                   </View>
                 </View>
-
-                <TouchableOpacity 
-                  style={styles.editButton} 
-                  onPress={handleEditProfile}
-                  activeOpacity={0.8}
-                >
-                  <LinearGradient colors={["#FFFFFF", "#F8F9FA"]} style={styles.editButtonGradient}>
-                    <Ionicons name="create-outline" size={20} color="#2E7D32" />
-                    <Text style={styles.editButtonText}>✏️ Edit Profile</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
               </View>
             </View>
           </LinearGradient>
         </Animated.View>
 
         <View style={styles.statsSection}>
-          <TouchableOpacity 
-            style={styles.statCard} 
+          <TouchableOpacity
+            style={styles.statCard}
             onPress={() => handleViewFollowList("following")}
             activeOpacity={0.8}
           >
@@ -448,8 +562,8 @@ export default function ProfileScreen() {
             </LinearGradient>
           </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.statCard} 
+          <TouchableOpacity
+            style={styles.statCard}
             onPress={() => handleViewFollowList("followers")}
             activeOpacity={0.8}
           >
@@ -475,41 +589,81 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <View style={styles.achievementSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>🏆 Achievements</Text>
-            <TouchableOpacity>
-              <Text style={styles.viewAllText}>View All</Text>
-            </TouchableOpacity>
-          </View>
-          
-          <View style={styles.achievementCard}>
-            <LinearGradient 
-              colors={["#FFF8E1", "#FFFFFF"]} 
-              style={styles.achievementGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-            >
-              <View style={styles.achievementContent}>
-                <View style={styles.achievementIcon}>
-                  <LinearGradient colors={["#FF9800", "#FFB74D"]} style={styles.achievementIconGradient}>
-                    <Ionicons name="trophy" size={32} color="#FFFFFF" />
-                  </LinearGradient>
-                </View>
-                <View style={styles.achievementInfo}>
-                  <Text style={styles.achievementTitle}>Quit Smoking Journey</Text>
-                  <Text style={styles.achievementDesc}>
-                    {user.smokingFreeDays > 0
-                      ? `Amazing! ${user.smokingFreeDays} days smoke-free! 🎉`
-                      : "Start your quit smoking journey today"}
-                  </Text>
-                  <View style={styles.progressBar}>
-                    <View style={[styles.progressFill, { width: `${Math.min(user.smokingFreeDays * 2, 100)}%` }]} />
+        {currentPlan && (
+          <View style={styles.currentPlanSection}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>🎯 Kế hoạch hiện tại</Text>
+              <View style={styles.actionButtons}>
+                <TouchableOpacity onPress={() => router.push("/current")}>
+                  <Text style={styles.viewAllText}>Xem chi tiết</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => cancelCurrentPlan("User requested cancellation")}
+                  style={styles.cancelButton}
+                >
+                  <Text style={styles.cancelText}>Hủy kế hoạch</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.currentPlanCard}>
+              <LinearGradient colors={["#E8F5E8", "#FFFFFF"]} style={styles.currentPlanGradient}>
+                <View style={styles.currentPlanHeader}>
+                  <View style={styles.planIconContainer}>
+                    <Ionicons name="clipboard" size={32} color="#4CAF50" />
+                  </View>
+                  <View style={styles.planInfo}>
+                    <Text style={styles.planTitle}>{currentPlan.title}</Text>
+                    <Text style={styles.planStatus}>
+                      Trạng thái: {currentPlan.status === "ongoing" ? "Đang thực hiện" : "Hoàn thành"}
+                    </Text>
+                    <Text style={styles.planDuration}>Thời gian: {currentPlan.duration} ngày</Text>
                   </View>
                 </View>
-              </View>
-            </LinearGradient>
+
+                <View style={styles.planProgress}>
+                  <Text style={styles.progressLabel}>Tiến độ</Text>
+                  <View style={styles.progressBar}>
+                    <View style={[styles.progressFill, { width: `${progress}%` }]} />
+                  </View>
+                  <Text style={styles.progressText}>{progress}% hoàn thành</Text>
+                </View>
+              </LinearGradient>
+            </View>
           </View>
+        )}
+
+        <View style={styles.badgesSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>🏅 Huy hiệu</Text>
+            <TouchableOpacity onPress={() => handleAwardBadge("Test Badge", "Badge for testing")}>
+              <Text style={styles.viewAllText}>Thêm badge</Text>
+            </TouchableOpacity>
+          </View>
+
+          {badges.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.badgesScroll}>
+              {badges.map((badge, index) => (
+                <View key={index} style={[styles.badgeCard, { marginLeft: index === 0 ? 20 : 12 }]}>
+                  <LinearGradient colors={["#FFF8E1", "#FFFFFF"]} style={styles.badgeCardGradient}>
+                    <View style={styles.badgeIcon}>
+                      <Ionicons name="medal" size={32} color="#FF9800" />
+                    </View>
+                    <Text style={styles.badgeName}>{badge.name}</Text>
+                    <Text style={styles.badgeDescription} numberOfLines={2}>
+                      {badge.description}
+                    </Text>
+                  </LinearGradient>
+                </View>
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={styles.noBadgesContainer}>
+              <Ionicons name="medal-outline" size={48} color="#BDBDBD" />
+              <Text style={styles.noBadgesText}>Chưa có huy hiệu nào</Text>
+              <Text style={styles.noBadgesSubtext}>Hoàn thành các mục tiêu để nhận huy hiệu</Text>
+            </View>
+          )}
         </View>
 
         {followersList.length > 0 && (
@@ -520,7 +674,7 @@ export default function ProfileScreen() {
                 <Text style={styles.viewAllText}>View All</Text>
               </TouchableOpacity>
             </View>
-            
+
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.followersScroll}>
               {followersList.slice(0, 10).map((follower, index) => (
                 <TouchableOpacity
@@ -539,9 +693,7 @@ export default function ProfileScreen() {
                       {follower.userName || "Unknown"}
                     </Text>
                     <View style={styles.followerBadge}>
-                      <Text style={styles.followerRole}>
-                        {follower.role === "coach" ? "Coach" : "User"}
-                      </Text>
+                      <Text style={styles.followerRole}>{follower.role === "coach" ? "Coach" : "User"}</Text>
                     </View>
                   </LinearGradient>
                 </TouchableOpacity>
@@ -552,7 +704,6 @@ export default function ProfileScreen() {
 
         <View style={styles.infoSection}>
           <Text style={styles.sectionTitle}>📋 Personal Information</Text>
-
           <View style={styles.infoCard}>
             <LinearGradient colors={["#FFFFFF", "#FAFAFA"]} style={styles.infoGradient}>
               {[
@@ -560,7 +711,12 @@ export default function ProfileScreen() {
                 { icon: "text-outline", label: "Bio", value: user.bio || "Not Updated", color: "#9C27B0" },
                 { icon: "location-outline", label: "Address", value: user.address || "Not Updated", color: "#4CAF50" },
                 { icon: "call-outline", label: "Phone", value: user.phone || "Not Updated", color: "#00BCD4" },
-                { icon: "checkmark-circle-outline", label: "Status", value: user.isActive ? "Active" : "Inactive", color: user.isActive ? "#4CAF50" : "#FF5722" },
+                {
+                  icon: "checkmark-circle-outline",
+                  label: "Status",
+                  value: user.isActive ? "Active" : "Inactive",
+                  color: user.isActive ? "#4CAF50" : "#FF5722",
+                },
                 { icon: "time-outline", label: "Member Since", value: formatDate(user.createdAt), color: "#607D8B" },
               ].map((item, index) => (
                 <View key={index} style={styles.infoItem}>
@@ -582,7 +738,7 @@ export default function ProfileScreen() {
 
         <View style={styles.actionSection}>
           <Text style={styles.sectionTitle}>⚙️ Quick Actions</Text>
-          
+
           {[
             { icon: "settings-outline", text: "Settings", color: "#2196F3" },
             { icon: "help-circle-outline", text: "Help & Support", color: "#9C27B0" },
@@ -610,15 +766,10 @@ export default function ProfileScreen() {
         </View>
       </Animated.ScrollView>
 
-      <Modal
-        visible={editing}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={handleCloseEdit}
-      >
+      <Modal visible={editing} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleCloseEdit}>
         <SafeAreaView style={styles.modalContainer}>
           <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-          
+
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={handleCloseEdit} style={styles.closeButton}>
               <Ionicons name="close" size={28} color="#666" />
@@ -633,11 +784,7 @@ export default function ProfileScreen() {
             <LinearGradient colors={["#F8F9FA", "#FFFFFF"]} style={styles.modalGradient}>
               <View style={styles.editImageSection}>
                 <View style={styles.editImageContainer}>
-                  <Image
-                    source={{ uri: user.avatar }}
-                    style={styles.editProfileImage}
-                    resizeMode="cover"
-                  />
+                  <Image source={{ uri: user.avatar }} style={styles.editProfileImage} resizeMode="cover" />
                   <TouchableOpacity style={styles.changeImageButton}>
                     <Ionicons name="camera" size={20} color="#FFFFFF" />
                   </TouchableOpacity>
@@ -648,9 +795,21 @@ export default function ProfileScreen() {
               <View style={styles.formSection}>
                 {[
                   { key: "userName", placeholder: "Enter your username", icon: "person-outline", label: "Username" },
-                  { key: "bio", placeholder: "Tell us about yourself...", icon: "text-outline", label: "Bio", multiline: true },
+                  {
+                    key: "bio",
+                    placeholder: "Tell us about yourself...",
+                    icon: "text-outline",
+                    label: "Bio",
+                    multiline: true,
+                  },
                   { key: "address", placeholder: "Enter your address", icon: "location-outline", label: "Address" },
-                  { key: "phone", placeholder: "+84 xxx xxx xxx", icon: "call-outline", label: "Phone Number", keyboardType: "phone-pad" },
+                  {
+                    key: "phone",
+                    placeholder: "+84 xxx xxx xxx",
+                    icon: "call-outline",
+                    label: "Phone Number",
+                    keyboardType: "phone-pad",
+                  },
                 ].map((field, index) => (
                   <View key={index} style={styles.fieldContainer}>
                     <Text style={styles.fieldLabel}>{field.label}</Text>
@@ -686,7 +845,7 @@ export default function ProfileScreen() {
                     <Text style={styles.saveButtonText}>Save Changes</Text>
                   </LinearGradient>
                 </TouchableOpacity>
-                
+
                 <TouchableOpacity style={styles.cancelButton} onPress={handleCloseEdit}>
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </TouchableOpacity>
@@ -696,7 +855,7 @@ export default function ProfileScreen() {
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
-  );
+  )
 }
 
 const styles = StyleSheet.create({
@@ -786,11 +945,30 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.1)",
   },
+  settingsButton: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 50 : 30,
+    right: 20,
+    zIndex: 10,
+  },
+  settingsButtonBackground: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
   header: {
     flex: 1,
     justifyContent: "center",
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 40 : 20,
+    paddingTop: Platform.OS === "ios" ? 40 : 20,
   },
   profileSection: {
     alignItems: "center",
@@ -869,27 +1047,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginLeft: 4,
   },
-  editButton: {
-    borderRadius: 25,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  editButtonGradient: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 25,
-  },
-  editButtonText: {
-    fontSize: 16,
-    color: "#2E7D32",
-    fontWeight: "700",
-    marginLeft: 8,
-  },
   statsSection: {
     flexDirection: "row",
     paddingHorizontal: 20,
@@ -943,11 +1100,145 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: "#4CAF50",
   },
+  currentPlanSection: {
+    paddingHorizontal: 20,
+    marginBottom: 30,
+  },
+  currentPlanCard: {
+    borderRadius: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  currentPlanGradient: {
+    borderRadius: 20,
+    padding: 20,
+  },
+  currentPlanHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  planIconContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "rgba(76, 175, 80, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+  },
+  planInfo: {
+    flex: 1,
+  },
+  planTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#2E7D32",
+    marginBottom: 4,
+  },
+  planStatus: {
+    fontSize: 14,
+    color: "#4CAF50",
+    marginBottom: 2,
+  },
+  planDuration: {
+    fontSize: 12,
+    color: "#666",
+  },
+  planProgress: {
+    marginTop: 8,
+  },
+  progressLabel: {
+    fontSize: 14,
+    color: "#333",
+    marginBottom: 8,
+    fontWeight: "500",
+  },
+  progressBar: {
+    height: 8,
+    backgroundColor: "#E0E0E0",
+    borderRadius: 4,
+    overflow: "hidden",
+    marginBottom: 4,
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#4CAF50",
+    borderRadius: 4,
+  },
+  progressText: {
+    fontSize: 12,
+    color: "#666",
+    textAlign: "right",
+  },
+  badgesSection: {
+    marginBottom: 30,
+  },
+  badgesScroll: {
+    paddingVertical: 10,
+  },
+  badgeCard: {
+    width: 120,
+    marginRight: 12,
+    borderRadius: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  badgeCardGradient: {
+    borderRadius: 16,
+    padding: 16,
+    alignItems: "center",
+  },
+  badgeIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "rgba(255, 152, 0, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  badgeName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#333",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  badgeDescription: {
+    fontSize: 12,
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 16,
+  },
+  noBadgesContainer: {
+    alignItems: "center",
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  noBadgesText: {
+    fontSize: 16,
+    color: "#666",
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  noBadgesSubtext: {
+    fontSize: 14,
+    color: "#999",
+    textAlign: "center",
+  },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 16,
+    paddingHorizontal: 20,
   },
   sectionTitle: {
     fontSize: 20,
@@ -959,61 +1250,20 @@ const styles = StyleSheet.create({
     color: "#4CAF50",
     fontWeight: "600",
   },
-  achievementSection: {
-    paddingHorizontal: 20,
-    marginBottom: 30,
-  },
-  achievementCard: {
-    borderRadius: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  achievementGradient: {
-    borderRadius: 20,
-    padding: 20,
-  },
-  achievementContent: {
+  actionButtons: {
     flexDirection: "row",
     alignItems: "center",
   },
-  achievementIcon: {
-    marginRight: 16,
+  cancelButton: {
+    marginLeft: 10,
+    padding: 5,
+    backgroundColor: "#FF5722",
+    borderRadius: 10,
   },
-  achievementIconGradient: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  achievementInfo: {
-    flex: 1,
-  },
-  achievementTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#2E7D32",
-    marginBottom: 6,
-  },
-  achievementDesc: {
+  cancelText: {
+    color: "#FFFFFF",
     fontSize: 14,
-    color: "#666",
-    lineHeight: 20,
-    marginBottom: 12,
-  },
-  progressBar: {
-    height: 6,
-    backgroundColor: "#E0E0E0",
-    borderRadius: 3,
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: "#4CAF50",
-    borderRadius: 3,
+    fontWeight: "600",
   },
   followersSection: {
     marginBottom: 30,
@@ -1329,4 +1579,4 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 16,
   },
-});
+})

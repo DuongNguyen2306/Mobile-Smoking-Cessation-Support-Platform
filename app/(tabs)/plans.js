@@ -254,7 +254,7 @@ export default function QuitPlansScreen() {
             <Ionicons name="arrow-back" size={24} color={COLORS.white} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Kế hoạch bỏ thuốc</Text>
-          <TouchableOpacity style={styles.addButton} onPress={() => router.push("/create-quit-plan")}>
+          <TouchableOpacity style={styles.addButton} onPress={() => router.push("/custom-request")}>
             <Ionicons name="add" size={24} color={COLORS.white} />
           </TouchableOpacity>
         </View>

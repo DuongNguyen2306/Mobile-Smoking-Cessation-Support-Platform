@@ -370,7 +370,7 @@ export default function BlogDetailScreen() {
     }
   }
 
-  // Xử lý theo dõi/bỏ theo dõi (Local only - API not available)
+  
   const handleFollow = async () => {
   const targetUserId = blog?.user?._id || blog?.user?.id;
   if (!targetUserId) return;
