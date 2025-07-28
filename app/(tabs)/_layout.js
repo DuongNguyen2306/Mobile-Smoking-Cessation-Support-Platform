@@ -87,7 +87,7 @@ export default function TabLayout() {
         }}
       />
 
-        <Tabs.Screen
+      <Tabs.Screen
         name="plans"
         options={{
           title: "Kế hoạch",
@@ -102,7 +102,6 @@ export default function TabLayout() {
         name="profile"
         options={{
           title: "Cá nhân",
-          href: isAuthenticated ? undefined : null,
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? "person" : "person-outline"} size={24} color={color} />
           ),
@@ -166,19 +165,31 @@ export default function TabLayout() {
         }}
       />
 
-       <Tabs.Screen
+      <Tabs.Screen
         name="current"
         options={{
           href: null,
         }}
       />
+
       <Tabs.Screen
         name="custom-request"
         options={{
           href: null,
         }}
       />
-
+      <Tabs.Screen
+        name="plansHistory"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="paymentHistory"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   )
 }

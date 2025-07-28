@@ -42,24 +42,6 @@ const COLORS = {
 
 // Status configuration
 const STATUS_CONFIG = {
-  ongoing: {
-    color: COLORS.success,
-    label: "Đang thực hiện",
-    icon: "play-circle",
-    gradient: ["#4CAF50", "#66BB6A"],
-  },
-  completed: {
-    color: COLORS.info,
-    label: "Hoàn thành",
-    icon: "checkmark-circle",
-    gradient: ["#2196F3", "#42A5F5"],
-  },
-  failed: {
-    color: COLORS.error,
-    label: "Thất bại",
-    icon: "close-circle",
-    gradient: ["#FF5722", "#FF7043"],
-  },
   template: {
     color: COLORS.warning,
     label: "Mẫu kế hoạch",
@@ -74,15 +56,10 @@ export default function QuitPlansScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedStatus, setSelectedStatus] = useState("all")
 
-  // Filter plans locally for instant search
+  // Filter plans locally for instant search, only showing template plans
   const filteredPlans = useMemo(() => {
-    let filtered = allPlans
-
-    if (selectedStatus !== "all") {
-      filtered = filtered.filter((plan) => plan.status === selectedStatus)
-    }
+    let filtered = allPlans.filter((plan) => plan.status === "template")
 
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim()
@@ -95,7 +72,7 @@ export default function QuitPlansScreen() {
     }
 
     return filtered
-  }, [allPlans, searchQuery, selectedStatus])
+  }, [allPlans, searchQuery])
 
   useEffect(() => {
     loadQuitPlans()
@@ -128,10 +105,6 @@ export default function QuitPlansScreen() {
 
   const handleSearch = useCallback((query) => {
     setSearchQuery(query)
-  }, [])
-
-  const handleStatusFilter = useCallback((status) => {
-    setSelectedStatus(status)
   }, [])
 
   const handlePlanPress = (plan) => {
@@ -199,43 +172,6 @@ export default function QuitPlansScreen() {
     )
   }
 
-  const renderStatusFilter = () => {
-    const statuses = [
-      { key: "all", label: "Tất cả", icon: "apps" },
-      { key: "ongoing", label: "Đang thực hiện", icon: "play-circle" },
-      { key: "completed", label: "Hoàn thành", icon: "checkmark-circle" },
-      { key: "failed", label: "Thất bại", icon: "close-circle" },
-      { key: "template", label: "Mẫu", icon: "document-text" },
-    ]
-
-    return (
-      <View style={styles.filterContainer}>
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={statuses}
-          keyExtractor={(item) => item.key}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={[styles.filterButton, selectedStatus === item.key && styles.filterButtonActive]}
-              onPress={() => handleStatusFilter(item.key)}
-            >
-              <Ionicons
-                name={item.icon}
-                size={16}
-                color={selectedStatus === item.key ? COLORS.white : COLORS.primary}
-              />
-              <Text style={[styles.filterButtonText, selectedStatus === item.key && styles.filterButtonTextActive]}>
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          )}
-          contentContainerStyle={styles.filterList}
-        />
-      </View>
-    )
-  }
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -279,9 +215,6 @@ export default function QuitPlansScreen() {
         </View>
       </LinearGradient>
 
-      {/* Status Filter */}
-      {renderStatusFilter()}
-
       {/* Plans List */}
       <FlatList
         data={filteredPlans}
@@ -293,9 +226,9 @@ export default function QuitPlansScreen() {
         ListEmptyComponent={() => (
           <View style={styles.emptyContainer}>
             <Ionicons name="document-text-outline" size={64} color={COLORS.placeholder} />
-            <Text style={styles.emptyTitle}>Chưa có kế hoạch nào</Text>
+            <Text style={styles.emptyTitle}>Chưa có kế hoạch mẫu nào</Text>
             <Text style={styles.emptySubtitle}>
-              {searchQuery ? "Không tìm thấy kế hoạch phù hợp" : "Hãy tạo kế hoạch bỏ thuốc đầu tiên của bạn!"}
+              {searchQuery ? "Không tìm thấy kế hoạch mẫu phù hợp" : "Hãy tạo kế hoạch mẫu đầu tiên của bạn!"}
             </Text>
           </View>
         )}
@@ -374,36 +307,6 @@ const styles = StyleSheet.create({
     marginLeft: 12,
     fontSize: 16,
     color: COLORS.text,
-  },
-  filterContainer: {
-    backgroundColor: COLORS.white,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.lightBackground,
-  },
-  filterList: {
-    paddingHorizontal: 20,
-  },
-  filterButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: COLORS.lightBackground,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 12,
-  },
-  filterButtonActive: {
-    backgroundColor: COLORS.primary,
-  },
-  filterButtonText: {
-    fontSize: 14,
-    color: COLORS.primary,
-    marginLeft: 6,
-    fontWeight: "500",
-  },
-  filterButtonTextActive: {
-    color: COLORS.white,
   },
   listContainer: {
     padding: 20,

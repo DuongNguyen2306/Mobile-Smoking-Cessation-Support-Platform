@@ -7,6 +7,7 @@ import {
   Alert,
   Dimensions,
   Image,
+  Keyboard,
   Modal,
   RefreshControl,
   SafeAreaView,
@@ -15,12 +16,16 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
+import { PieChart } from "react-native-chart-kit";
 import {
   cancelQuitPlan,
   createQuitProgress,
   getCurrentQuitPlan,
+  getQuitPlanStages,
+  getQuitProgressByStage,
 } from "../services/api";
 
 const { width } = Dimensions.get("window");
@@ -56,6 +61,7 @@ export default function CurrentPlanScreen() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [managingPlan, setManagingPlan] = useState(false);
+  const [stageProgress, setStageProgress] = useState(null);
 
   // Progress form state
   const [cigarettesSmoked, setCigarettesSmoked] = useState("");
@@ -81,13 +87,13 @@ export default function CurrentPlanScreen() {
       console.log("Loading current quit plan...");
       const planResponse = await getCurrentQuitPlan();
       console.log("API response for getCurrentQuitPlan:", planResponse.status, planResponse.data);
-      
+
       if (planResponse.status === 200 && planResponse.data) {
         const responseData = planResponse.data.data || planResponse.data;
         const plan = responseData.plan;
         const stages = responseData.stages || [];
         const progress = responseData.progress || [];
-        
+
         if (plan && plan._id) {
           setCurrentPlan(plan);
           setStages(stages);
@@ -100,6 +106,9 @@ export default function CurrentPlanScreen() {
             "Progress:",
             progress.length
           );
+          if (stages.length > 0) {
+            await fetchStages(plan._id);
+          }
         } else {
           setCurrentPlan(null);
           setStages([]);
@@ -129,6 +138,35 @@ export default function CurrentPlanScreen() {
     }
   }, []);
 
+  const fetchStages = async (quitPlanId) => {
+    try {
+      const response = await getQuitPlanStages(quitPlanId);
+      console.log("API response for getQuitPlanStages:", response.data);
+      if (response.data && response.data.stages) {
+        setStages(response.data.stages);
+        if (response.data.stages.length > 0) {
+          await fetchStageProgress(response.data.stages[0]._id);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching stages:", error);
+      Alert.alert("Lỗi", "Không thể tải danh sách giai đoạn.");
+    }
+  };
+
+  const fetchStageProgress = async (stageId) => {
+    try {
+      const response = await getQuitProgressByStage(stageId);
+      console.log("API response for getQuitProgressByStage:", response.data);
+      if (response.data) {
+        setStageProgress(response.data);
+      }
+    } catch (error) {
+      console.error("Error fetching stage progress:", error);
+      Alert.alert("Lỗi", "Không thể tải tiến độ giai đoạn.");
+    }
+  };
+
   const onRefresh = useCallback(() => {
     loadCurrentPlan();
   }, []);
@@ -138,6 +176,7 @@ export default function CurrentPlanScreen() {
     setCigarettesSmoked("");
     setHealthStatus("");
     setNotes("");
+    setStageProgress(null);
     setShowProgressModal(true);
   };
 
@@ -156,13 +195,14 @@ export default function CurrentPlanScreen() {
         healthStatus: healthStatus.trim(),
         notes: notes.trim() || undefined,
       };
-      
+
       console.log("Submitting progress:", progressData);
       const response = await createQuitProgress(progressData);
-      
+
       if (response.status === 200 || response.status === 201) {
         Alert.alert("🎉 Thành công!", "Đã ghi nhận tiến độ hôm nay");
         setShowProgressModal(false);
+        await fetchStageProgress(selectedStage._id);
         loadCurrentPlan();
       }
     } catch (error) {
@@ -185,9 +225,9 @@ export default function CurrentPlanScreen() {
   };
 
   const getStageProgress = (stage) => {
-    const stageProgress = progress.filter((p) => p.stageId === stage._id);
+    const stageProgressData = progress.filter((p) => p.stageId === stage._id);
     const totalDays = stage.duration || 0;
-    const completedDays = stageProgress.length;
+    const completedDays = stageProgressData.length;
     return {
       completed: completedDays,
       total: totalDays,
@@ -211,7 +251,7 @@ export default function CurrentPlanScreen() {
       console.log("🚫 Cancelling current plan with reason:", cancelReason);
       const response = await cancelQuitPlan(currentPlan._id, cancelReason.trim() || undefined);
       console.log("Cancel response:", response.status, response.data);
-      
+
       if (response.status === 200 || response.status === 204) {
         Alert.alert("Đã hủy kế hoạch", "Bạn đã rời khỏi kế hoạch hiện tại. Bạn có thể chọn kế hoạch mới.", [
           {
@@ -258,60 +298,64 @@ export default function CurrentPlanScreen() {
       animationType="fade"
       onRequestClose={() => setShowCancelModal(false)}
     >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <View style={styles.modalIconContainer}>
-              <Ionicons name="warning" size={24} color={COLORS.error} />
-            </View>
-            <Text style={styles.modalTitle}>Hủy kế hoạch</Text>
-            <Text style={styles.modalSubtitle}>
-              Bạn có chắc chắn muốn hủy kế hoạch hiện tại không?
-            </Text>
-          </View>
-          
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Lý do hủy (tuỳ chọn):</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              value={cancelReason}
-              onChangeText={setCancelReason}
-              placeholder="Nhập lý do hủy kế hoạch..."
-              multiline={true}
-              placeholderTextColor={COLORS.lightText}
-            />
-          </View>
+      <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setShowCancelModal(false); }}>
+        <View style={styles.modalOverlay}>
+          <TouchableWithoutFeedback>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <View style={styles.modalIconContainer}>
+                  <Ionicons name="warning" size={24} color={COLORS.error} />
+                </View>
+                <Text style={styles.modalTitle}>Hủy kế hoạch</Text>
+                <Text style={styles.modalSubtitle}>
+                  Bạn có chắc chắn muốn hủy kế hoạch hiện tại không?
+                </Text>
+              </View>
 
-          <View style={styles.modalActions}>
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => setShowCancelModal(false)}
-            >
-              <Text style={styles.cancelButtonText}>Quay lại</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={styles.confirmButton}
-              onPress={submitCancelPlan}
-              disabled={managingPlan}
-            >
-              <LinearGradient
-                colors={[COLORS.error, '#E53E3E']}
-                style={styles.confirmButtonGradient}
-              >
-                {managingPlan ? (
-                  <ActivityIndicator size="small" color={COLORS.white} />
-                ) : (
-                  <>
-                    <Ionicons name="trash" size={18} color={COLORS.white} />
-                    <Text style={styles.confirmButtonText}>Xác nhận hủy</Text>
-                  </>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Lý do hủy (tuỳ chọn):</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={cancelReason}
+                  onChangeText={setCancelReason}
+                  placeholder="Nhập lý do hủy kế hoạch..."
+                  multiline={true}
+                  placeholderTextColor={COLORS.lightText}
+                />
+              </View>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={() => { Keyboard.dismiss(); setShowCancelModal(false); }}
+                >
+                  <Text style={styles.cancelButtonText}>Quay lại</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.confirmButton}
+                  onPress={submitCancelPlan}
+                  disabled={managingPlan}
+                >
+                  <LinearGradient
+                    colors={[COLORS.error, "#E53E3E"]}
+                    style={styles.confirmButtonGradient}
+                  >
+                    {managingPlan ? (
+                      <ActivityIndicator size="small" color={COLORS.white} />
+                    ) : (
+                      <>
+                        <Ionicons name="trash" size={18} color={COLORS.white} />
+                        <Text style={styles.confirmButtonText}>Xác nhận hủy</Text>
+                      </>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
         </View>
-      </View>
+      </TouchableWithoutFeedback>
     </Modal>
   );
 
@@ -320,104 +364,142 @@ export default function CurrentPlanScreen() {
       visible={showProgressModal}
       transparent={true}
       animationType="slide"
-      onRequestClose={() => setShowProgressModal(false)}
+      onRequestClose={() => { Keyboard.dismiss(); setShowProgressModal(false); }}
     >
-      <View style={styles.modalOverlay}>
-        <View style={styles.progressModalContent}>
-          <View style={styles.modalHeader}>
-            <View style={styles.modalIconContainer}>
-              <Ionicons name="analytics" size={24} color={COLORS.primary} />
-            </View>
-            <Text style={styles.modalTitle}>Ghi nhận tiến độ</Text>
-            {selectedStage && (
-              <Text style={styles.modalSubtitle}>{selectedStage.stage_name}</Text>
-            )}
-          </View>
-
-          <ScrollView showsVerticalScrollIndicator={false}>
-            {selectedStage && (
-              <View style={styles.stageInfoCard}>
-                <Text style={styles.stageInfoTitle}>Giai đoạn hiện tại</Text>
-                <Text style={styles.stageInfoDesc}>{selectedStage.description}</Text>
-              </View>
-            )}
-
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>
-                <Ionicons name="remove-circle" size={16} color={COLORS.error} /> 
-                Số điếu thuốc đã hút hôm nay
-              </Text>
-              <TextInput
-                style={styles.input}
-                value={cigarettesSmoked}
-                onChangeText={setCigarettesSmoked}
-                placeholder="Nhập số điếu..."
-                keyboardType="numeric"
-                placeholderTextColor={COLORS.lightText}
-              />
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>
-                <Ionicons name="heart" size={16} color={COLORS.info} /> 
-                Tình trạng sức khỏe
-              </Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                value={healthStatus}
-                onChangeText={setHealthStatus}
-                placeholder="Mô tả cảm giác và tình trạng sức khỏe của bạn..."
-                multiline={true}
-                placeholderTextColor={COLORS.lightText}
-              />
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>
-                <Ionicons name="document-text" size={16} color={COLORS.accent} /> 
-                Ghi chú thêm (tuỳ chọn)
-              </Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                value={notes}
-                onChangeText={setNotes}
-                placeholder="Thêm ghi chú về cảm xúc, khó khăn gặp phải..."
-                multiline={true}
-                placeholderTextColor={COLORS.lightText}
-              />
-            </View>
-          </ScrollView>
-
-          <View style={styles.modalActions}>
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => setShowProgressModal(false)}
-            >
-              <Text style={styles.cancelButtonText}>Hủy</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={styles.submitButton}
-              onPress={submitProgress}
-              disabled={submittingProgress}
-            >
-              <LinearGradient
-                colors={[COLORS.primary, COLORS.accent]}
-                style={styles.submitButtonGradient}
-              >
-                {submittingProgress ? (
-                  <ActivityIndicator size="small" color={COLORS.white} />
-                ) : (
-                  <>
-                    <Ionicons name="checkmark" size={18} color={COLORS.white} />
-                    <Text style={styles.submitButtonText}>Ghi nhận</Text>
-                  </>
+      <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
+        <View style={styles.modalOverlay}>
+          <TouchableWithoutFeedback>
+            <View style={styles.progressModalContent}>
+              <View style={styles.modalHeader}>
+                <View style={styles.modalIconContainer}>
+                  <Ionicons name="analytics" size={24} color={COLORS.primary} />
+                </View>
+                <Text style={styles.modalTitle}>Ghi nhận tiến độ</Text>
+                {selectedStage && (
+                  <Text style={styles.modalSubtitle}>{selectedStage.stage_name}</Text>
                 )}
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {selectedStage && (
+                  <View style={styles.stageInfoCard}>
+                    <Text style={styles.stageInfoTitle}>Giai đoạn hiện tại</Text>
+                    <Text style={styles.stageInfoDesc}>{selectedStage.description}</Text>
+                  </View>
+                )}
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>
+                    <Ionicons name="remove-circle" size={16} color={COLORS.error} />
+                    Số điếu thuốc đã hút hôm nay
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    value={cigarettesSmoked}
+                    onChangeText={setCigarettesSmoked}
+                    placeholder="Nhập số điếu..."
+                    keyboardType="numeric"
+                    placeholderTextColor={COLORS.lightText}
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>
+                    <Ionicons name="heart" size={16} color={COLORS.info} />
+                    Tình trạng sức khỏe
+                  </Text>
+                  <TextInput
+                    style={[styles.input, styles.textArea]}
+                    value={healthStatus}
+                    onChangeText={setHealthStatus}
+                    placeholder="Mô tả cảm giác và tình trạng sức khỏe của bạn..."
+                    multiline={true}
+                    placeholderTextColor={COLORS.lightText}
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>
+                    <Ionicons name="document-text" size={16} color={COLORS.accent} />
+                    Ghi chú thêm (tuỳ chọn)
+                  </Text>
+                  <TextInput
+                    style={[styles.input, styles.textArea]}
+                    value={notes}
+                    onChangeText={setNotes}
+                    placeholder="Thêm ghi chú về cảm xúc, khó khăn gặp phải..."
+                    multiline={true}
+                    placeholderTextColor={COLORS.lightText}
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                  />
+                </View>
+
+                {stageProgress && (
+                  <View style={styles.progressSummary}>
+                    <Text style={styles.progressSummaryTitle}>Tổng quan tiến độ</Text>
+                    <Text>Phần trăm hoàn thành: {stageProgress.statistics?.completionPercentage || 0}%</Text>
+                    <Text>Số ngày kiểm tra: {stageProgress.statistics?.checkInCount || 0}</Text>
+                    <PieChart
+                      data={[
+                        { name: "Hoàn thành", population: stageProgress.statistics?.completionPercentage || 0, color: COLORS.success },
+                        { name: "Còn lại", population: 100 - (stageProgress.statistics?.completionPercentage || 0), color: COLORS.warning },
+                      ]}
+                      width={width - 80}
+                      height={200}
+                      chartConfig={{
+                        backgroundColor: COLORS.white,
+                        backgroundGradientFrom: COLORS.lightBackground,
+                        backgroundGradientTo: COLORS.white,
+                        color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+                        strokeWidth: 2,
+                      }}
+                      accessor="population"
+                      backgroundColor="transparent"
+                      paddingLeft="15"
+                      center={[10, 0]}
+                      absolute
+                    />
+                  </View>
+                )}
+              </ScrollView>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={() => { Keyboard.dismiss(); setShowProgressModal(false); }}
+                >
+                  <Text style={styles.cancelButtonText}>Hủy</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.submitButton}
+                  onPress={submitProgress}
+                  disabled={submittingProgress}
+                >
+                  <LinearGradient
+                    colors={[COLORS.primary, COLORS.accent]}
+                    style={styles.submitButtonGradient}
+                  >
+                    {submittingProgress ? (
+                      <ActivityIndicator size="small" color={COLORS.white} />
+                    ) : (
+                      <>
+                        <Ionicons name="checkmark" size={18} color={COLORS.white} />
+                        <Text style={styles.submitButtonText}>Ghi nhận</Text>
+                      </>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
         </View>
-      </View>
+      </TouchableWithoutFeedback>
     </Modal>
   );
 
@@ -447,7 +529,7 @@ export default function CurrentPlanScreen() {
             <View style={styles.placeholder} />
           </View>
         </LinearGradient>
-        
+
         <View style={styles.emptyContainer}>
           <LinearGradient
             colors={[COLORS.lightBackground, COLORS.white]}
@@ -460,8 +542,8 @@ export default function CurrentPlanScreen() {
             <Text style={styles.emptySubtitle}>
               Hãy chọn một kế hoạch bỏ thuốc phù hợp để bắt đầu hành trình của bạn!
             </Text>
-            <TouchableOpacity 
-              style={styles.browsePlansButton} 
+            <TouchableOpacity
+              style={styles.browsePlansButton}
               onPress={() => router.push("/plans")}
             >
               <LinearGradient
@@ -480,7 +562,6 @@ export default function CurrentPlanScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <LinearGradient colors={[COLORS.secondary, COLORS.primary]} style={styles.headerGradient}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
@@ -495,15 +576,14 @@ export default function CurrentPlanScreen() {
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
-            onRefresh={onRefresh} 
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
             colors={[COLORS.primary]}
             tintColor={COLORS.primary}
           />
         }
       >
-        {/* Plan Overview */}
         <View style={styles.planOverview}>
           <View style={styles.planImageContainer}>
             <Image
@@ -512,15 +592,15 @@ export default function CurrentPlanScreen() {
               resizeMode="cover"
             />
             <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.3)']}
+              colors={["transparent", "rgba(0,0,0,0.3)"]}
               style={styles.imageOverlay}
             />
           </View>
-          
+
           <View style={styles.planInfo}>
             <Text style={styles.planTitle}>{currentPlan.title}</Text>
             <Text style={styles.planReason}>{currentPlan.reason}</Text>
-            
+
             <View style={styles.planStatsContainer}>
               <View style={styles.statCard}>
                 <View style={styles.statIconContainer}>
@@ -529,16 +609,16 @@ export default function CurrentPlanScreen() {
                 <View style={styles.statContent}>
                   <Text style={styles.statLabel}>Ngày bắt đầu</Text>
                   <Text style={styles.statValue}>
-                    {new Date(currentPlan.startDate).toLocaleDateString("vi-VN", { 
+                    {new Date(currentPlan.startDate).toLocaleDateString("vi-VN", {
                       timeZone: "Asia/Ho_Chi_Minh",
                       day: "2-digit",
                       month: "2-digit",
-                      year: "numeric"
+                      year: "numeric",
                     })}
                   </Text>
                 </View>
               </View>
-              
+
               <View style={styles.statCard}>
                 <View style={styles.statIconContainer}>
                   <Ionicons name="time" size={20} color={COLORS.accent} />
@@ -552,7 +632,6 @@ export default function CurrentPlanScreen() {
           </View>
         </View>
 
-        {/* Cancel Plan Button */}
         <View style={styles.actionSection}>
           <TouchableOpacity
             style={styles.cancelPlanButton}
@@ -560,7 +639,7 @@ export default function CurrentPlanScreen() {
             disabled={managingPlan}
           >
             <LinearGradient
-              colors={[COLORS.error, '#E53E3E']}
+              colors={[COLORS.error, "#E53E3E"]}
               style={styles.cancelPlanGradient}
             >
               {managingPlan ? (
@@ -575,7 +654,6 @@ export default function CurrentPlanScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Stages Progress */}
         <View style={styles.stagesSection}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionIconContainer}>
@@ -583,28 +661,32 @@ export default function CurrentPlanScreen() {
             </View>
             <Text style={styles.sectionTitle}>Tiến độ các giai đoạn</Text>
           </View>
-          
+
           {stages.map((stage, index) => {
             const stageProgressData = getStageProgress(stage);
             const todayProgress = getTodayProgress(stage._id);
             const isCompleted = stage.completed || stageProgressData.percentage >= 100;
-            
+
             return (
               <View key={stage._id} style={styles.stageCard}>
                 <View style={styles.stageHeader}>
-                  <View style={[styles.stageNumber, isCompleted && styles.stageNumberCompleted]}>
+                  <View
+                    style={[
+                      styles.stageNumber,
+                      isCompleted && styles.stageNumberCompleted,
+                    ]}
+                  >
                     {isCompleted ? (
                       <Ionicons name="checkmark" size={18} color={COLORS.white} />
                     ) : (
                       <Text style={styles.stageNumberText}>{index + 1}</Text>
                     )}
                   </View>
-                  
+
                   <View style={styles.stageContent}>
                     <Text style={styles.stageName}>{stage.stage_name}</Text>
                     <Text style={styles.stageDescription}>{stage.description}</Text>
-                    
-                    {/* Progress Bar */}
+
                     <View style={styles.progressContainer}>
                       <View style={styles.progressHeader}>
                         <Text style={styles.progressLabel}>Tiến độ</Text>
@@ -616,8 +698,8 @@ export default function CurrentPlanScreen() {
                         <LinearGradient
                           colors={[COLORS.primary, COLORS.accent]}
                           style={[
-                            styles.progressFill, 
-                            { width: `${Math.min(stageProgressData.percentage, 100)}%` }
+                            styles.progressFill,
+                            { width: `${Math.min(stageProgressData.percentage, 100)}%` },
                           ]}
                         />
                       </View>
@@ -625,32 +707,44 @@ export default function CurrentPlanScreen() {
                         {Math.round(stageProgressData.percentage)}%
                       </Text>
                     </View>
-                    
-                    {/* Today's Progress or Add Progress Button */}
+
                     {todayProgress ? (
                       <View style={styles.todayProgress}>
                         <View style={styles.todayProgressIcon}>
-                          <Ionicons name="checkmark-circle" size={20} color={COLORS.success} />
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={20}
+                            color={COLORS.success}
+                          />
                         </View>
                         <View style={styles.todayProgressContent}>
-                          <Text style={styles.todayProgressTitle}>Đã ghi nhận hôm nay</Text>
+                          <Text style={styles.todayProgressTitle}>
+                            Đã ghi nhận hôm nay
+                          </Text>
                           <Text style={styles.todayProgressText}>
-                            {todayProgress.cigarettesSmoked} điếu • {todayProgress.healthStatus}
+                            {todayProgress.cigarettesSmoked} điếu •{" "}
+                            {todayProgress.healthStatus}
                           </Text>
                         </View>
                       </View>
                     ) : (
                       !isCompleted && (
-                        <TouchableOpacity 
-                          style={styles.addProgressButton} 
+                        <TouchableOpacity
+                          style={styles.addProgressButton}
                           onPress={() => handleAddProgress(stage)}
                         >
                           <LinearGradient
-                            colors={[COLORS.primary + '15', COLORS.accent + '15']}
+                            colors={[COLORS.primary + "15", COLORS.accent + "15"]}
                             style={styles.addProgressGradient}
                           >
-                            <Ionicons name="add-circle" size={20} color={COLORS.primary} />
-                            <Text style={styles.addProgressText}>Ghi nhận tiến độ hôm nay</Text>
+                            <Ionicons
+                              name="add-circle"
+                              size={20}
+                              color={COLORS.primary}
+                            />
+                            <Text style={styles.addProgressText}>
+                              Ghi nhận tiến độ hôm nay
+                            </Text>
                           </LinearGradient>
                         </TouchableOpacity>
                       )
@@ -1212,5 +1306,17 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontWeight: "bold",
     marginLeft: 8,
+  },
+  progressSummary: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: COLORS.lightBackground,
+    borderRadius: 12,
+  },
+  progressSummaryTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.primary,
+    marginBottom: 8,
   },
 });

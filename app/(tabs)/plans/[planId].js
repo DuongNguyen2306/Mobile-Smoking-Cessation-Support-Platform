@@ -167,7 +167,7 @@ export default function QuitPlanDetailScreen() {
             {
               text: "Xem kế hoạch của tôi",
               onPress: () => {
-                router.push("/plans/current")
+                router.push("/current")
               },
             },
             {

@@ -1,10 +1,8 @@
-"use client"
-
-import { Ionicons } from "@expo/vector-icons"
-import AsyncStorage from "@react-native-async-storage/async-storage"
-import { LinearGradient } from "expo-linear-gradient"
-import { useFocusEffect, useRouter } from "expo-router"
-import { useCallback, useEffect, useState } from "react"
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { LinearGradient } from "expo-linear-gradient";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,7 +10,6 @@ import {
   Dimensions,
   Image,
   Modal,
-  Platform,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -22,407 +19,492 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-} from "react-native"
+} from "react-native";
 import {
   awardBadge,
   cancelQuitPlan,
+  createPaymentUrl,
   getCurrentQuitPlan,
   getFollowers,
   getFollowing,
+  getMembership,
+  getPackages,
   getProfile,
   getQuitPlanBadges,
-  getQuitProgress,
   updateProfile,
-} from "../services/api"
+} from "../services/api";
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window")
-const HEADER_HEIGHT = 280
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+const HEADER_HEIGHT = 280;
 
 const getStoredFollowing = async () => {
   try {
-    const followingData = await AsyncStorage.getItem("following")
-    return followingData ? JSON.parse(followingData) : []
+    const followingData = await AsyncStorage.getItem("following");
+    return followingData ? JSON.parse(followingData) : [];
   } catch (err) {
-    console.error("Lỗi khi lấy danh sách following từ AsyncStorage:", err)
-    return []
+    console.error("Lỗi khi lấy danh sách following từ AsyncStorage:", err);
+    return [];
   }
-}
+};
 
 const storeFollowing = async (followingList) => {
   try {
-    await AsyncStorage.setItem("following", JSON.stringify(followingList))
+    await AsyncStorage.setItem("following", JSON.stringify(followingList));
   } catch (err) {
-    console.error("Lỗi khi lưu danh sách following vào AsyncStorage:", err)
+    console.error("Lỗi khi lưu danh sách following vào AsyncStorage:", err);
   }
-}
+};
 
 export default function ProfileScreen() {
-  const router = useRouter()
-  const [user, setUser] = useState(null)
-  const [followersCount, setFollowersCount] = useState(0)
-  const [followingCount, setFollowingCount] = useState(0)
-  const [followersList, setFollowersList] = useState([])
-  const [currentPlan, setCurrentPlan] = useState(null)
-  const [badges, setBadges] = useState([])
-  const [progress, setProgress] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState(null)
-  const [editing, setEditing] = useState(false)
-  const [editData, setEditData] = useState({})
-  const [scrollY] = useState(new Animated.Value(0))
-
-  const calculateProgress = (startDate, duration) => {
-    if (!startDate || !duration) return 0
-    const start = new Date(startDate)
-    const now = new Date()
-    const daysElapsed = Math.floor((now - start) / (1000 * 60 * 60 * 24))
-    const totalDays = parseInt(duration, 10)
-    const progress = totalDays > 0 ? Math.min((daysElapsed / totalDays) * 100, 100) : 0
-    return Math.round(progress)
-  }
+  const router = useRouter();
+  const [user, setUser] = useState(null);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+  const [followersList, setFollowersList] = useState([]);
+  const [currentPlan, setCurrentPlan] = useState(null);
+  const [badges, setBadges] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [editData, setEditData] = useState({});
+  const [scrollY] = useState(new Animated.Value(0));
+  const [imageError, setImageError] = useState(false);
+  const [membership, setMembership] = useState(null);
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState(null);
+  const [packages, setPackages] = useState([]);
+  const [step, setStep] = useState(1);
 
   const loadCurrentPlan = useCallback(async () => {
     try {
-      console.log("🔍 Loading current quit plan...")
-      const response = await getCurrentQuitPlan({ headers: { "Cache-Control": "no-cache" } })
-      console.log("API response for getCurrentQuitPlan:", response.data)
+      console.log("🔍 Loading current quit plan...");
+      const response = await getCurrentQuitPlan({ headers: { "Cache-Control": "no-cache" } });
+      console.log("API response for getCurrentQuitPlan:", JSON.stringify(response.data, null, 2));
       if (response.status === 200 && response.data) {
-        const plan = response.data.data || response.data
-        console.log("Parsed plan data:", plan)
-        if (plan && plan.status !== "completed" && plan.status !== "deleted") {
-          setCurrentPlan(plan)
-          console.log("✅ Current plan loaded:", plan)
+        const plan = response.data.data?.plan || response.data;
+        console.log("Parsed plan data:", plan);
+        if (plan && plan._id && plan.status !== "completed" && plan.status !== "deleted") {
+          setCurrentPlan({
+            ...plan,
+            title: plan.title || plan.name || "Kế hoạch bỏ thuốc",
+            image: plan.image || plan.imageUrl || "https://via.placeholder.com/150",
+            startDate: plan.startDate || null,
+            duration: plan.duration || 0,
+          });
+          console.log("✅ Current plan loaded:", { title: plan.title || plan.name, image: plan.image || plan.imageUrl });
           if (plan._id) {
             try {
-              const progressResponse = await getQuitProgress(plan._id)
-              if (progressResponse.status === 200 && progressResponse.data) {
-                const progressData = progressResponse.data.data || progressResponse.data || []
-                const completedDays = progressData.length
-                const totalDays = parseInt(plan.duration, 10)
-                const calcProgress = totalDays > 0 ? Math.min((completedDays / totalDays) * 100, 100) : 0
-                setProgress(Math.round(calcProgress))
-                console.log("Progress calculated from progress data:", calcProgress)
-              } else {
-                const calcProgress = calculateProgress(plan.startDate, plan.duration)
-                setProgress(calcProgress)
-                console.log("Progress calculated from startDate and duration:", calcProgress)
-              }
-            } catch (progressError) {
-              console.log("No progress data found, using startDate and duration:", progressError)
-              const calcProgress = calculateProgress(plan.startDate, plan.duration)
-              setProgress(calcProgress)
-            }
-            try {
-              const badgesResponse = await getQuitPlanBadges(plan._id)
+              const badgesResponse = await getQuitPlanBadges(plan._id);
               if (badgesResponse.status === 200 && badgesResponse.data) {
-                setBadges(badgesResponse.data.data || badgesResponse.data || [])
+                setBadges(badgesResponse.data.data || badgesResponse.data || []);
               }
             } catch (badgeError) {
-              console.log("No badges found for current plan")
-              setBadges([])
+              console.log("No badges found for current plan:", badgeError);
+              setBadges([]);
             }
           }
         } else {
-          console.log("Plan is completed or deleted, not showing in profile")
-          setCurrentPlan(null)
-          setBadges([])
-          setProgress(0)
+          console.log("Plan is completed, deleted, or not found, setting to null");
+          setCurrentPlan(null);
+          setBadges([]);
         }
       } else {
-        console.log("No current plan found, setting to null")
-        setCurrentPlan(null)
-        setBadges([])
-        setProgress(0)
+        console.log("No current plan found, setting to null");
+        setCurrentPlan(null);
+        setBadges([]);
       }
     } catch (error) {
-      console.log("Error loading current plan or no plan found:", error.response?.status)
-      setCurrentPlan(null)
-      setBadges([])
-      setProgress(0)
+      console.error("Error loading current plan:", error.response?.status, error.message);
+      setError(error.response?.data?.message || "Không thể tải kế hoạch hiện tại");
+      setCurrentPlan(null);
+      setBadges([]);
     }
-  }, [])
+  }, []);
 
   const loadFollowCounts = useCallback(async (userId) => {
     try {
-      console.log("🔍 Loading follow counts for userId:", userId)
-      const followingList = await getStoredFollowing()
-      setFollowingCount(followingList.length)
-      console.log("🔢 Following count from AsyncStorage:", followingList.length)
+      console.log("🔍 Loading follow counts for userId:", userId);
+      const followingList = await getStoredFollowing();
+      setFollowingCount(followingList.length);
+      console.log("🔢 Following count from AsyncStorage:", followingList.length);
 
       const [followersRes, followingRes] = await Promise.allSettled([
         getFollowers(userId, { page: 1, limit: 1000 }),
         getFollowing(userId, { page: 1, limit: 1000 }),
-      ])
+      ]);
 
       if (followersRes.status === "fulfilled") {
-        const followersData = followersRes.value.data
-        console.log("📡 Raw followers response:", JSON.stringify(followersData, null, 2))
-        let count = 0
-        let followers = []
+        const followersData = followersRes.value.data;
+        console.log("📡 Raw followers response:", JSON.stringify(followersData, null, 2));
+        let count = 0;
+        let followers = [];
         if (followersData?.data?.followers && Array.isArray(followersData.data.followers)) {
-          followers = followersData.data.followers
-          count = followers.length
+          followers = followersData.data.followers;
+          count = followers.length;
         } else if (followersData?.followers && Array.isArray(followersData.followers)) {
-          followers = followersData.followers
-          count = followers.length
+          followers = followersData.followers;
+          count = followers.length;
         } else if (followersData?.data && Array.isArray(followersData.data)) {
-          followers = followersData.data
-          count = followers.length
+          followers = followersData.data;
+          count = followers.length;
         } else {
-          console.warn("⚠️ Unexpected followers data structure:", followersData)
+          console.warn("⚠️ Unexpected followers data structure:", followersData);
         }
-        console.log("👥 Parsed followers list:", followers)
-        setFollowersCount(count)
-        setFollowersList(followers)
+        console.log("👥 Parsed followers list:", followers);
+        setFollowersCount(count);
+        setFollowersList(followers);
       } else {
-        console.error("❌ Followers request failed:", followersRes.reason)
+        console.error("❌ Followers request failed:", followersRes.reason);
       }
 
       if (followingRes.status === "fulfilled") {
-        const followingData = followingRes.value.data
-        let count = 0
-        let serverFollowingList = []
+        const followingData = followingRes.value.data;
+        let count = 0;
+        let serverFollowingList = [];
         if (followingData?.data?.following) {
           serverFollowingList = Array.isArray(followingData.data.following)
             ? followingData.data.following.map((user) => user._id)
-            : []
-          count = serverFollowingList.length
+            : [];
+          count = serverFollowingList.length;
         } else if (followingData?.following) {
           serverFollowingList = Array.isArray(followingData.following)
             ? followingData.following.map((user) => user._id)
-            : []
-          count = serverFollowingList.length
+            : [];
+          count = serverFollowingList.length;
         } else if (followingData?.data && Array.isArray(followingData.data)) {
-          serverFollowingList = followingData.data.map((user) => user._id)
-          count = serverFollowingList.length
+          serverFollowingList = followingData.data.map((user) => user._id);
+          count = serverFollowingList.length;
         }
-        console.log("🔢 Following count from server:", count)
-        setFollowingCount(count)
-        await storeFollowing(serverFollowingList)
+        console.log("🔢 Following count from server:", count);
+        setFollowingCount(count);
+        await storeFollowing(serverFollowingList);
       } else {
-        console.error("❌ Following request failed:", followingRes.reason)
+        console.error("❌ Following request failed:", followingRes.reason);
       }
     } catch (err) {
-      console.error("❌ Error loading follow counts:", err)
-      setError("Failed to load follow counts.")
+      console.error("❌ Error loading follow counts:", err);
+      setError("Không thể tải số lượng người theo dõi.");
     }
-  }, [])
+  }, []);
 
   const loadUserProfile = useCallback(async () => {
     try {
-      setError(null)
-      const token = await AsyncStorage.getItem("token")
+      setError(null);
+      const token = await AsyncStorage.getItem("token");
       if (!token) {
-        Alert.alert("Notification", "Please log in to continue", [
+        Alert.alert("Thông báo", "Vui lòng đăng nhập để tiếp tục", [
           { text: "OK", onPress: () => router.replace("/(auth)/login") },
-        ])
-        return
+        ]);
+        return;
       }
 
-      console.log("🔍 Loading user profile...")
-      const response = await getProfile()
+      console.log("🔍 Loading user profile...");
+      const response = await getProfile();
       if (response.status === 200 && response.data) {
-        const userData = response.data.data?.user || response.data.user || response.data || {}
-        console.log("✅ Profile loaded:", JSON.stringify(userData, null, 2))
+        const userData = response.data.data?.user || response.data.user || response.data || {};
+        console.log("✅ Profile loaded:", JSON.stringify(userData, null, 2));
 
         setUser({
           id: userData.id || userData._id || null,
-          userName: userData.userName || userData.name || "Not Updated",
-          email: userData.email || "Not Updated",
+          userName: userData.userName || userData.name || "Chưa cập nhật",
+          email: userData.email || "Chưa cập nhật",
           avatar: userData.avatar || userData.profilePicture || userData.imageUrl || "https://via.placeholder.com/120",
           smokingFreeDays: userData.smokingFreeDays || 0,
-          gender: userData.gender || "Not Updated",
+          gender: userData.gender || "Chưa cập nhật",
           bio: userData.bio || "",
           address: userData.address || "",
           phone: userData.phone || "",
           isActive: userData.isActive || false,
           createdAt: userData.createdAt || null,
-        })
+        });
 
         if (userData.id || userData._id) {
-          await loadFollowCounts(userData.id || userData._id)
+          await loadFollowCounts(userData.id || userData._id);
         }
       } else {
-        throw new Error("Invalid response format")
+        throw new Error("Định dạng phản hồi không hợp lệ");
       }
     } catch (err) {
-      console.error("❌ Error loading profile:", err)
-      const errorMessage = err.response?.data?.message || err.message || "Failed to load profile"
-      setError(errorMessage)
+      console.error("❌ Error loading profile:", err);
+      const errorMessage = err.response?.data?.message || err.message || "Không thể tải hồ sơ";
+      setError(errorMessage);
       if (err.response?.status === 401) {
-        Alert.alert("Session Expired", "Please log in again", [
+        Alert.alert("Phiên hết hạn", "Vui lòng đăng nhập lại", [
           { text: "OK", onPress: () => router.replace("/(auth)/login") },
-        ])
+        ]);
       }
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      setLoading(false);
+      setRefreshing(false);
     }
-  }, [router, loadFollowCounts])
+  }, [router, loadFollowCounts]);
+
+  const loadMembership = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const storedUser = await AsyncStorage.getItem("user");
+
+      if (!token || !storedUser) return;
+
+      const parsedUser = JSON.parse(storedUser);
+      const userId = parsedUser._id || parsedUser.id;
+
+      if (!userId) {
+        console.warn("User ID not found");
+        return;
+      }
+
+      console.log("🔍 Loading membership for user:", userId);
+
+      const response = await getMembership(userId, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      console.log("Membership API response:", JSON.stringify(response.data, null, 2));
+
+      if (response.status === 200 && response.data.success) {
+        setMembership(response.data.data.currentPlan || { name: "Chưa cập nhật" });
+      } else {
+        console.warn("Membership data not successfully loaded:", response.data.message);
+        setMembership({ name: "Chưa cập nhật" });
+      }
+    } catch (err) {
+      console.error("❌ Error loading membership:", err.response?.status, err.response?.data, err.message);
+      setMembership({ name: "Chưa cập nhật" });
+    }
+  }, []);
+
+  const loadPackages = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const response = await getPackages({ headers: { Authorization: `Bearer ${token}` } });
+      if (response.status === 200 && response.data.success) {
+        setPackages(response.data.data.filter((pkg) => pkg.isActive));
+      } else {
+        console.warn("Packages data not successfully loaded:", response.data.message);
+        setPackages([]);
+      }
+    } catch (err) {
+      console.error("❌ Error loading packages:", err.response?.status, err.response?.data, err.message);
+      setPackages([]);
+    }
+  }, []);
 
   const handleUpdateProfile = async () => {
     try {
-      setLoading(true)
-      const token = await AsyncStorage.getItem("token")
-      if (!token) throw new Error("No authentication token")
+      setLoading(true);
+      const token = await AsyncStorage.getItem("token");
+      if (!token) throw new Error("Không có token xác thực");
 
       const updateData = {
         userName: editData.userName,
         bio: editData.bio,
         address: editData.address,
         phone: editData.phone,
-      }
+      };
 
-      console.log("🔄 Updating profile with data:", updateData)
-      const response = await updateProfile(updateData)
+      console.log("🔄 Updating profile with data:", updateData);
+      const response = await updateProfile(updateData);
       if (response.status === 200) {
-        Alert.alert("Success", "Profile updated successfully")
-        setEditing(false)
-        await loadUserProfile()
+        Alert.alert("Thành công", "Hồ sơ đã được cập nhật thành công");
+        setEditing(false);
+        await loadUserProfile();
       }
     } catch (err) {
-      console.error("❌ Error updating profile:", err)
-      const errorMessage = err.response?.data?.message || err.message || "Failed to update profile"
-      Alert.alert("Update Failed", errorMessage)
+      console.error("❌ Error updating profile:", err);
+      const errorMessage = err.response?.data?.message || err.message || "Không thể cập nhật hồ sơ";
+      Alert.alert("Cập nhật thất bại", errorMessage);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleAwardBadge = async (badgeName, badgeDescription) => {
     if (!currentPlan?._id) {
-      Alert.alert("Lỗi", "Không tìm thấy kế hoạch hiện tại")
-      return
+      Alert.alert("Lỗi", "Không tìm thấy kế hoạch hiện tại");
+      return;
     }
 
     try {
       const badgeData = {
         name: badgeName,
         description: badgeDescription,
-      }
+      };
 
-      const response = await awardBadge(currentPlan._id, badgeData)
+      const response = await awardBadge(currentPlan._id, badgeData);
       if (response.status === 200 || response.status === 201) {
-        Alert.alert("🎉 Chúc mừng!", `Bạn đã nhận được badge: ${badgeName}`)
-        const badgesResponse = await getQuitPlanBadges(currentPlan._id)
+        Alert.alert("🎉 Chúc mừng!", `Bạn đã nhận được huy hiệu: ${badgeName}`);
+        const badgesResponse = await getQuitPlanBadges(currentPlan._id);
         if (badgesResponse.status === 200 && badgesResponse.data) {
-          setBadges(badgesResponse.data.data || badgesResponse.data || [])
+          setBadges(badgesResponse.data.data || badgesResponse.data || []);
         }
       }
     } catch (error) {
-      console.error("Error awarding badge:", error)
-      Alert.alert("Lỗi", "Không thể trao badge")
+      console.error("Error awarding badge:", error);
+      Alert.alert("Lỗi", "Không thể trao huy hiệu");
     }
-  }
+  };
 
   const cancelCurrentPlan = async (reason) => {
     try {
       console.log("📡 Cancelling current quit plan with reason:", reason);
       await cancelQuitPlan(reason);
       console.log("✅ Plan cancelled successfully");
-      await loadCurrentPlan(); // Làm mới dữ liệu
+      Alert.alert("Thành công", "Kế hoạch đã được hủy", [
+        {
+          text: "OK",
+          onPress: () => {
+            setCurrentPlan(null);
+            setBadges([]);
+          },
+        },
+      ]);
     } catch (error) {
       console.error("Error cancelling plan:", error);
       Alert.alert("Lỗi", "Không thể hủy kế hoạch: " + (error.response?.data?.message || error.message));
-      await loadCurrentPlan(); // Làm mới để kiểm tra trạng thái
+    }
+  };
+
+  const handleCreatePayment = async (planId, paymentMethod) => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      if (!token) throw new Error("Không có token xác thực");
+
+      const plan = packages.find((p) => p._id === planId);
+      if (!plan) throw new Error("Không tìm thấy gói thành viên");
+
+      const response = await createPaymentUrl({
+        memberShipPlanId: planId,
+        paymentMethod: paymentMethod.toLowerCase(),
+        amount: plan.price,
+      });
+
+      if (response.status === 200 && response.data.paymentUrl) {
+        router.push(response.data.paymentUrl);
+      } else {
+        Alert.alert("Lỗi", "Không thể tạo liên kết thanh toán");
+      }
+    } catch (err) {
+      console.error("Error creating payment:", err);
+      Alert.alert("Lỗi", "Không thể tạo liên kết thanh toán: " + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const handlePaymentSuccess = async () => {
+    if (user?.id) {
+      const updatedMembership = await getMembership(user.id);
+      if (updatedMembership.status === 200 && updatedMembership.data.success) {
+        setMembership(updatedMembership.data.data.currentPlan || { name: "Chưa cập nhật" });
+      }
+      setShowPaymentModal(false);
+      setStep(1); // Reset về bước 1 sau khi thanh toán thành công
+      setSelectedPlan(null); // Reset selectedPlan
+      setPaymentMethod(null); // Reset paymentMethod
     }
   };
 
   useEffect(() => {
-    loadUserProfile()
-    loadCurrentPlan()
-  }, [loadUserProfile, loadCurrentPlan])
+    loadUserProfile();
+    loadCurrentPlan();
+    loadMembership();
+    loadPackages();
+  }, [loadUserProfile, loadCurrentPlan, loadMembership, loadPackages]);
 
   useFocusEffect(
     useCallback(() => {
-      loadUserProfile()
-      loadCurrentPlan()
-    }, [loadUserProfile, loadCurrentPlan])
-  )
+      loadUserProfile();
+      loadCurrentPlan();
+      loadMembership();
+      loadPackages();
+    }, [loadUserProfile, loadCurrentPlan, loadMembership, loadPackages])
+  );
 
   const onRefresh = useCallback(async () => {
-    setRefreshing(true)
-    await Promise.all([loadUserProfile(), loadCurrentPlan()])
-  }, [loadUserProfile, loadCurrentPlan])
+    setRefreshing(true);
+    await Promise.all([loadUserProfile(), loadCurrentPlan(), loadMembership(), loadPackages()]);
+  }, [loadUserProfile, loadCurrentPlan, loadMembership, loadPackages]);
 
   const handleLogout = async () => {
-    Alert.alert("Confirm Logout", "Are you sure you want to log out?", [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert("Xác nhận đăng xuất", "Bạn có chắc muốn đăng xuất?", [
+      { text: "Hủy", style: "cancel" },
       {
-        text: "Log Out",
+        text: "Đăng xuất",
         style: "destructive",
         onPress: async () => {
           try {
-            await AsyncStorage.removeItem("token")
-            await AsyncStorage.removeItem("user")
-            await AsyncStorage.removeItem("following")
-            router.replace("/(auth)/login")
+            await AsyncStorage.removeItem("token");
+            await AsyncStorage.removeItem("user");
+            await AsyncStorage.removeItem("following");
+            router.replace("/(auth)/login");
           } catch (err) {
-            console.error("Logout error:", err)
-            await AsyncStorage.removeItem("token")
-            await AsyncStorage.removeItem("user")
-            await AsyncStorage.removeItem("following")
-            router.replace("/(auth)/login")
+            console.error("Lỗi đăng xuất:", err);
+            await AsyncStorage.removeItem("token");
+            await AsyncStorage.removeItem("user");
+            await AsyncStorage.removeItem("following");
+            router.replace("/(auth)/login");
           }
         },
       },
-    ])
-  }
+    ]);
+  };
 
   const handleViewFollowList = (type) => {
     if (user?.id) {
       router.push({
         pathname: "/followList",
         params: { userId: user.id, type },
-      })
+      });
     }
-  }
+  };
 
   const handleViewFollowerProfile = (followerId) => {
     router.push({
       pathname: "/userProfile",
       params: { userId: followerId },
-    })
-  }
+    });
+  };
 
   const handleEditProfile = () => {
-    console.log("🔧 Opening edit profile modal")
+    console.log("🔧 Opening edit profile modal");
     setEditData({
       userName: user.userName,
       bio: user.bio,
       address: user.address,
       phone: user.phone,
-    })
-    setEditing(true)
-  }
+    });
+    setEditing(true);
+  };
 
   const handleCloseEdit = () => {
-    console.log("❌ Closing edit profile modal")
-    setEditing(false)
-    setEditData({})
-  }
+    console.log("❌ Closing edit profile modal");
+    setEditing(false);
+    setEditData({});
+  };
 
   const formatDate = (dateString) => {
-    if (!dateString) return "Not Updated"
-    return new Date(dateString).toLocaleDateString("en-US", {
+    if (!dateString) return "Chưa cập nhật";
+    return new Date(dateString).toLocaleDateString("vi-VN", {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
-    })
-  }
+      timeZone: "Asia/Ho_Chi_Minh",
+    });
+  };
 
   const headerOpacity = scrollY.interpolate({
     inputRange: [0, HEADER_HEIGHT / 2],
     outputRange: [1, 0],
     extrapolate: "clamp",
-  })
+  });
 
   const headerTranslateY = scrollY.interpolate({
     inputRange: [0, HEADER_HEIGHT],
     outputRange: [0, -HEADER_HEIGHT / 2],
     extrapolate: "clamp",
-  })
+  });
 
   if (loading) {
     return (
@@ -431,11 +513,11 @@ export default function ProfileScreen() {
         <LinearGradient colors={["#1B5E20", "#2E7D32", "#4CAF50"]} style={styles.loadingGradient}>
           <View style={styles.loadingContent}>
             <ActivityIndicator size="large" color="#FFFFFF" />
-            <Text style={styles.loadingText}>Loading your profile...</Text>
+            <Text style={styles.loadingText}>Đang tải hồ sơ...</Text>
           </View>
         </LinearGradient>
       </View>
-    )
+    );
   }
 
   if (error) {
@@ -447,24 +529,24 @@ export default function ProfileScreen() {
             <View style={styles.errorIconContainer}>
               <Ionicons name="alert-circle-outline" size={80} color="#FF5722" />
             </View>
-            <Text style={styles.errorTitle}>Oops! Something went wrong</Text>
+            <Text style={styles.errorTitle}>Đã có lỗi xảy ra</Text>
             <Text style={styles.errorText}>{error}</Text>
             <TouchableOpacity
               style={styles.retryButton}
               onPress={() => {
-                setError(null)
-                loadUserProfile()
+                setError(null);
+                loadUserProfile();
               }}
             >
               <LinearGradient colors={["#4CAF50", "#66BB6A"]} style={styles.retryGradient}>
                 <Ionicons name="refresh" size={20} color="#FFFFFF" />
-                <Text style={styles.retryButtonText}>Try Again</Text>
+                <Text style={styles.retryButtonText}>Thử lại</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>
         </LinearGradient>
       </View>
-    )
+    );
   }
 
   if (!user) {
@@ -473,11 +555,11 @@ export default function ProfileScreen() {
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
         <View style={styles.errorContent}>
           <Ionicons name="person-outline" size={80} color="#FF5722" />
-          <Text style={styles.errorTitle}>User Not Found</Text>
-          <Text style={styles.errorText}>User information not found</Text>
+          <Text style={styles.errorTitle}>Không tìm thấy người dùng</Text>
+          <Text style={styles.errorText}>Thông tin người dùng không tìm thấy</Text>
         </View>
       </View>
-    )
+    );
   }
 
   return (
@@ -536,10 +618,9 @@ export default function ProfileScreen() {
                 <View style={styles.userInfo}>
                   <Text style={styles.userName}>{user.userName}</Text>
                   <Text style={styles.userEmail}>{user.email}</Text>
-                  <View style={styles.userBadge}>
-                    <Ionicons name="shield-checkmark" size={16} color="#FFD700" />
-                    <Text style={styles.badgeText}>Verified</Text>
-                  </View>
+                  {membership && (
+                    <Text style={styles.userPlan}>{membership.name || "Chưa cập nhật"}</Text>
+                  )}
                 </View>
               </View>
             </View>
@@ -557,7 +638,7 @@ export default function ProfileScreen() {
                 <Ionicons name="people" size={28} color="#2196F3" />
               </View>
               <Text style={styles.statNumber}>{followingCount}</Text>
-              <Text style={styles.statLabel}>Following</Text>
+              <Text style={styles.statLabel}>Đang theo dõi</Text>
               <View style={styles.statIndicator} />
             </LinearGradient>
           </TouchableOpacity>
@@ -572,7 +653,7 @@ export default function ProfileScreen() {
                 <Ionicons name="heart" size={28} color="#E91E63" />
               </View>
               <Text style={styles.statNumber}>{followersCount}</Text>
-              <Text style={styles.statLabel}>Followers</Text>
+              <Text style={styles.statLabel}>Người theo dõi</Text>
               <View style={styles.statIndicator} />
             </LinearGradient>
           </TouchableOpacity>
@@ -583,61 +664,59 @@ export default function ProfileScreen() {
                 <Ionicons name="calendar" size={28} color="#4CAF50" />
               </View>
               <Text style={styles.statNumber}>{user.smokingFreeDays}</Text>
-              <Text style={styles.statLabel}>Smoke-Free Days</Text>
+              <Text style={styles.statLabel}>Ngày không hút thuốc</Text>
               <View style={styles.statIndicator} />
             </LinearGradient>
           </View>
         </View>
 
         {currentPlan && (
-          <View style={styles.currentPlanSection}>
+          <View style={styles.progressChartSection}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>🎯 Kế hoạch hiện tại</Text>
-              <View style={styles.actionButtons}>
-                <TouchableOpacity onPress={() => router.push("/current")}>
-                  <Text style={styles.viewAllText}>Xem chi tiết</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => cancelCurrentPlan("User requested cancellation")}
-                  style={styles.cancelButton}
-                >
-                  <Text style={styles.cancelText}>Hủy kế hoạch</Text>
-                </TouchableOpacity>
-              </View>
+              <Text style={styles.sectionTitle}>📊 Kế hoạch hiện tại</Text>
             </View>
-
-            <View style={styles.currentPlanCard}>
-              <LinearGradient colors={["#E8F5E8", "#FFFFFF"]} style={styles.currentPlanGradient}>
-                <View style={styles.currentPlanHeader}>
-                  <View style={styles.planIconContainer}>
-                    <Ionicons name="clipboard" size={32} color="#4CAF50" />
-                  </View>
-                  <View style={styles.planInfo}>
-                    <Text style={styles.planTitle}>{currentPlan.title}</Text>
-                    <Text style={styles.planStatus}>
-                      Trạng thái: {currentPlan.status === "ongoing" ? "Đang thực hiện" : "Hoàn thành"}
+            <TouchableOpacity activeOpacity={0.8} onPress={() => router.push("/current")}>
+              <View style={styles.planContainer}>
+                <View style={styles.planImageContainer}>
+                  <Image
+                    source={{ uri: imageError ? "https://via.placeholder.com/150" : currentPlan.image }}
+                    style={styles.planImage}
+                    resizeMode="cover"
+                    onError={() => {
+                      console.log("Lỗi tải hình ảnh kế hoạch, sử dụng dự phòng");
+                      setImageError(true);
+                    }}
+                  />
+                  <LinearGradient
+                    colors={["transparent", "rgba(0,255,255,0.3)"]}
+                    style={styles.imageOverlay}
+                  />
+                </View>
+                <View style={styles.planInfo}>
+                  <Text style={styles.planTitleText}>{currentPlan.title}</Text>
+                  {currentPlan.startDate && (
+                    <Text style={styles.planSubText}>
+                      Bắt đầu: {formatDate(currentPlan.startDate)}
                     </Text>
-                    <Text style={styles.planDuration}>Thời gian: {currentPlan.duration} ngày</Text>
-                  </View>
+                  )}
+                  {currentPlan.duration > 0 && (
+                    <Text style={styles.planSubText}>
+                      Thời gian: {currentPlan.duration} ngày
+                    </Text>
+                  )}
                 </View>
-
-                <View style={styles.planProgress}>
-                  <Text style={styles.progressLabel}>Tiến độ</Text>
-                  <View style={styles.progressBar}>
-                    <View style={[styles.progressFill, { width: `${progress}%` }]} />
-                  </View>
-                  <Text style={styles.progressText}>{progress}% hoàn thành</Text>
-                </View>
-              </LinearGradient>
-            </View>
+              </View>
+            </TouchableOpacity>
           </View>
         )}
 
         <View style={styles.badgesSection}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>🏅 Huy hiệu</Text>
-            <TouchableOpacity onPress={() => handleAwardBadge("Test Badge", "Badge for testing")}>
-              <Text style={styles.viewAllText}>Thêm badge</Text>
+            <TouchableOpacity
+              onPress={() => handleAwardBadge("Huy hiệu thử nghiệm", "Huy hiệu cho mục đích kiểm tra")}
+            >
+              <Text style={styles.viewAllText}>Thêm huy hiệu</Text>
             </TouchableOpacity>
           </View>
 
@@ -666,58 +745,58 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {followersList.length > 0 && (
-          <View style={styles.followersSection}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>👥 Recent Followers</Text>
-              <TouchableOpacity onPress={() => handleViewFollowList("followers")}>
-                <Text style={styles.viewAllText}>View All</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.followersScroll}>
-              {followersList.slice(0, 10).map((follower, index) => (
-                <TouchableOpacity
-                  key={follower._id}
-                  style={[styles.followerCard, { marginLeft: index === 0 ? 20 : 12 }]}
-                  onPress={() => handleViewFollowerProfile(follower._id)}
-                  activeOpacity={0.8}
-                >
-                  <LinearGradient colors={["#FFFFFF", "#F8F9FA"]} style={styles.followerCardGradient}>
-                    <Image
-                      source={{ uri: follower.profilePicture || "https://via.placeholder.com/60" }}
-                      style={styles.followerImage}
-                      resizeMode="cover"
-                    />
-                    <Text style={styles.followerName} numberOfLines={1}>
-                      {follower.userName || "Unknown"}
-                    </Text>
-                    <View style={styles.followerBadge}>
-                      <Text style={styles.followerRole}>{follower.role === "coach" ? "Coach" : "User"}</Text>
-                    </View>
-                  </LinearGradient>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+        <View style={styles.followersSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>👥 Người theo dõi gần đây</Text>
+            <TouchableOpacity onPress={() => handleViewFollowList("followers")}>
+              <Text style={styles.viewAllText}>Xem tất cả</Text>
+            </TouchableOpacity>
           </View>
-        )}
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.followersScroll}>
+            {followersList.slice(0, 10).map((follower, index) => (
+              <TouchableOpacity
+                key={follower._id}
+                style={[styles.followerCard, { marginLeft: index === 0 ? 20 : 12 }]}
+                onPress={() => handleViewFollowerProfile(follower._id)}
+                activeOpacity={0.8}
+              >
+                <LinearGradient colors={["#FFFFFF", "#F8F9FA"]} style={styles.followerCardGradient}>
+                  <Image
+                    source={{ uri: follower.profilePicture || "https://via.placeholder.com/60" }}
+                    style={styles.followerImage}
+                    resizeMode="cover"
+                  />
+                  <Text style={styles.followerName} numberOfLines={1}>
+                    {follower.userName || "Không xác định"}
+                  </Text>
+                  <View style={styles.followerBadge}>
+                    <Text style={styles.followerRole}>
+                      {follower.role === "coach" ? "Huấn luyện viên" : "Người dùng"}
+                    </Text>
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
 
         <View style={styles.infoSection}>
-          <Text style={styles.sectionTitle}>📋 Personal Information</Text>
+          <Text style={styles.sectionTitle}>📋 Thông tin cá nhân</Text>
           <View style={styles.infoCard}>
             <LinearGradient colors={["#FFFFFF", "#FAFAFA"]} style={styles.infoGradient}>
               {[
-                { icon: "person-outline", label: "Gender", value: user.gender, color: "#2196F3" },
-                { icon: "text-outline", label: "Bio", value: user.bio || "Not Updated", color: "#9C27B0" },
-                { icon: "location-outline", label: "Address", value: user.address || "Not Updated", color: "#4CAF50" },
-                { icon: "call-outline", label: "Phone", value: user.phone || "Not Updated", color: "#00BCD4" },
+                { icon: "person-outline", label: "Giới tính", value: user.gender, color: "#2196F3" },
+                { icon: "text-outline", label: "Tiểu sử", value: user.bio || "Chưa cập nhật", color: "#9C27B0" },
+                { icon: "location-outline", label: "Địa chỉ", value: user.address || "Chưa cập nhật", color: "#4CAF50" },
+                { icon: "call-outline", label: "Điện thoại", value: user.phone || "Chưa cập nhật", color: "#00BCD4" },
                 {
                   icon: "checkmark-circle-outline",
-                  label: "Status",
-                  value: user.isActive ? "Active" : "Inactive",
+                  label: "Trạng thái",
+                  value: user.isActive ? "Hoạt động" : "Không hoạt động",
                   color: user.isActive ? "#4CAF50" : "#FF5722",
                 },
-                { icon: "time-outline", label: "Member Since", value: formatDate(user.createdAt), color: "#607D8B" },
+                { icon: "time-outline", label: "Thành viên từ", value: formatDate(user.createdAt), color: "#607D8B" },
               ].map((item, index) => (
                 <View key={index} style={styles.infoItem}>
                   <View style={[styles.infoIcon, { backgroundColor: `${item.color}15` }]}>
@@ -725,7 +804,7 @@ export default function ProfileScreen() {
                   </View>
                   <View style={styles.infoContent}>
                     <Text style={styles.infoLabel}>{item.label}</Text>
-                    <Text style={[styles.infoValue, item.label === "Status" && { color: item.color }]}>
+                    <Text style={[styles.infoValue, item.label === "Trạng thái" && { color: item.color }]}>
                       {item.value}
                     </Text>
                   </View>
@@ -737,14 +816,30 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.actionSection}>
-          <Text style={styles.sectionTitle}>⚙️ Quick Actions</Text>
-
+          <Text style={styles.sectionTitle}>⚙️ Hành động nhanh</Text>
           {[
-            { icon: "settings-outline", text: "Settings", color: "#2196F3" },
-            { icon: "help-circle-outline", text: "Help & Support", color: "#9C27B0" },
-            { icon: "information-circle-outline", text: "About", color: "#FF9800" },
+            { icon: "settings-outline", text: "Cài đặt", color: "#2196F3" },
+            { icon: "help-circle-outline", text: "Hỗ trợ", color: "#9C27B0" },
+            { icon: "information-circle-outline", text: "Giới thiệu", color: "#FF9800" },
+            {
+              icon: "cash-outline",
+              text: "Lịch sử thanh toán",
+              color: "#FF9800",
+              onPress: () => router.push("/paymentHistory"),
+            },
+            {
+              icon: "card-outline",
+              text: "Đăng ký gói thành viên",
+              color: "#4CAF50",
+              onPress: () => { setShowPlanModal(true); },
+            },
           ].map((action, index) => (
-            <TouchableOpacity key={index} style={styles.actionButton} activeOpacity={0.8}>
+            <TouchableOpacity
+              key={index}
+              style={styles.actionButton}
+              activeOpacity={0.8}
+              onPress={action.onPress || undefined}
+            >
               <LinearGradient colors={["#FFFFFF", "#F8F9FA"]} style={styles.actionGradient}>
                 <View style={[styles.actionIcon, { backgroundColor: `${action.color}15` }]}>
                   <Ionicons name={action.icon} size={22} color={action.color} />
@@ -760,7 +855,7 @@ export default function ProfileScreen() {
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.8}>
             <LinearGradient colors={["#FF5722", "#FF7043"]} style={styles.logoutGradient}>
               <Ionicons name="log-out-outline" size={22} color="#FFFFFF" />
-              <Text style={styles.logoutText}>Sign Out</Text>
+              <Text style={styles.logoutText}>Đăng xuất</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -774,9 +869,9 @@ export default function ProfileScreen() {
             <TouchableOpacity onPress={handleCloseEdit} style={styles.closeButton}>
               <Ionicons name="close" size={28} color="#666" />
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>✏️ Edit Profile</Text>
+            <Text style={styles.modalTitle}>✏️ Chỉnh sửa hồ sơ</Text>
             <TouchableOpacity onPress={handleUpdateProfile} style={styles.saveHeaderButton}>
-              <Text style={styles.saveHeaderText}>Save</Text>
+              <Text style={styles.saveHeaderText}>Lưu</Text>
             </TouchableOpacity>
           </View>
 
@@ -789,25 +884,25 @@ export default function ProfileScreen() {
                     <Ionicons name="camera" size={20} color="#FFFFFF" />
                   </TouchableOpacity>
                 </View>
-                <Text style={styles.changeImageText}>Tap to change profile photo</Text>
+                <Text style={styles.changeImageText}>Chạm để thay đổi ảnh hồ sơ</Text>
               </View>
 
               <View style={styles.formSection}>
                 {[
-                  { key: "userName", placeholder: "Enter your username", icon: "person-outline", label: "Username" },
+                  { key: "userName", placeholder: "Nhập tên người dùng", icon: "person-outline", label: "Tên người dùng" },
                   {
                     key: "bio",
-                    placeholder: "Tell us about yourself...",
+                    placeholder: "Giới thiệu về bạn...",
                     icon: "text-outline",
-                    label: "Bio",
+                    label: "Tiểu sử",
                     multiline: true,
                   },
-                  { key: "address", placeholder: "Enter your address", icon: "location-outline", label: "Address" },
+                  { key: "address", placeholder: "Nhập địa chỉ", icon: "location-outline", label: "Địa chỉ" },
                   {
                     key: "phone",
                     placeholder: "+84 xxx xxx xxx",
                     icon: "call-outline",
-                    label: "Phone Number",
+                    label: "Số điện thoại",
                     keyboardType: "phone-pad",
                   },
                 ].map((field, index) => (
@@ -834,7 +929,7 @@ export default function ProfileScreen() {
               <View style={styles.infoNote}>
                 <Ionicons name="information-circle-outline" size={20} color="#4CAF50" />
                 <Text style={styles.infoNoteText}>
-                  Only username, bio, address, and phone can be updated at this time.
+                  Hiện tại chỉ có thể cập nhật tên người dùng, tiểu sử, địa chỉ và số điện thoại.
                 </Text>
               </View>
 
@@ -842,20 +937,193 @@ export default function ProfileScreen() {
                 <TouchableOpacity style={styles.saveButton} onPress={handleUpdateProfile}>
                   <LinearGradient colors={["#4CAF50", "#66BB6A"]} style={styles.saveGradient}>
                     <Ionicons name="checkmark-circle" size={24} color="#FFFFFF" />
-                    <Text style={styles.saveButtonText}>Save Changes</Text>
+                    <Text style={styles.saveButtonText}>Lưu thay đổi</Text>
                   </LinearGradient>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.cancelButton} onPress={handleCloseEdit}>
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                  <Text style={styles.cancelButtonText}>Hủy</Text>
                 </TouchableOpacity>
               </View>
             </LinearGradient>
           </ScrollView>
         </SafeAreaView>
       </Modal>
+
+      <Modal visible={showPlanModal} animationType="slide" onRequestClose={() => setShowPlanModal(false)}>
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setShowPlanModal(false)} style={styles.closeButton}>
+              <Ionicons name="close" size={28} color="#666" />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Chọn gói thành viên</Text>
+          </View>
+          <ScrollView style={styles.modalContent}>
+            <LinearGradient colors={["#F8F9FA", "#FFFFFF"]} style={styles.modalGradient}>
+              {packages.map((plan) => (
+                <TouchableOpacity
+                  key={plan._id}
+                  style={styles.planOption}
+                  onPress={() => {
+                    setSelectedPlan(plan);
+                    setShowPlanModal(false);
+                    setShowPaymentModal(true);
+                    setStep(1); // Bắt đầu từ bước 1 sau khi chọn gói
+                  }}
+                >
+                  <Text style={styles.planName}>{plan.name}</Text>
+                  <Text style={styles.planPrice}>
+                    {plan.price > 0 ? `${plan.price.toLocaleString()} VNĐ/${plan.duration} ngày` : "Miễn phí"}
+                  </Text>
+                  <Text style={styles.planDescription}>{plan.description}</Text>
+                  <View style={styles.planFeatures}>
+                    {plan.features.map((feature, index) => (
+                      <Text key={index} style={styles.planFeature}>{feature}</Text>
+                    ))}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </LinearGradient>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      <Modal visible={showPaymentModal} animationType="slide" onRequestClose={() => {
+        setShowPaymentModal(false);
+        setStep(1); // Reset bước khi đóng modal
+        setPaymentMethod(null); // Reset paymentMethod khi đóng
+      }}>
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => {
+              setShowPaymentModal(false);
+              setStep(1);
+              setPaymentMethod(null);
+            }} style={styles.closeButton}>
+              <Ionicons name="close" size={28} color="#666" />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Xác nhận thanh toán</Text>
+          </View>
+          <ScrollView style={styles.modalContent}>
+            <LinearGradient colors={["#F8F9FA", "#FFFFFF"]} style={styles.modalGradient}>
+              {!selectedPlan ? (
+                <View style={styles.stepCard}>
+                  <Text style={styles.sectionTitle}>Chọn gói thành viên</Text>
+                  {packages.map((plan) => (
+                    <TouchableOpacity
+                      key={plan._id}
+                      style={styles.planOption}
+                      onPress={() => {
+                        setSelectedPlan(plan);
+                        setStep(1); // Bắt đầu từ bước 1 sau khi chọn gói
+                      }}
+                    >
+                      <Text style={styles.planName}>{plan.name}</Text>
+                      <Text style={styles.planPrice}>
+                        {plan.price > 0 ? `${plan.price.toLocaleString()} VNĐ/${plan.duration} ngày` : "Miễn phí"}
+                      </Text>
+                      <Text style={styles.planDescription}>{plan.description}</Text>
+                      <View style={styles.planFeatures}>
+                        {plan.features.map((feature, index) => (
+                          <Text key={index} style={styles.planFeature}>{feature}</Text>
+                        ))}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : (
+                <>
+                  {step === 1 && (
+                    <View style={styles.stepCard}>
+                      <Text style={styles.sectionTitle}>✅ Bước 1/3: Thông tin người dùng</Text>
+                      <Text>Họ tên: {user.userName || user.email}</Text>
+                      <Text>Email: {user.email}</Text>
+                      <Text>Số điện thoại: {user.phone || "Không có dữ liệu"}</Text>
+                    </View>
+                  )}
+                  {step === 2 && selectedPlan && (
+                    <View style={styles.stepCard}>
+                      <Text style={styles.sectionTitle}>✅ Bước 2/3: Thông tin gói & Phương thức thanh toán</Text>
+                      <Text>Gói thành viên: {selectedPlan.name}</Text>
+                      <Text>Giá: {selectedPlan.price.toLocaleString()} VNĐ</Text>
+                      <Text>Thời gian: {selectedPlan.duration} ngày</Text>
+                      <Text>Các tính năng:</Text>
+                      {selectedPlan.features.map((f, i) => (
+                        <Text key={i}>✔ {f}</Text>
+                      ))}
+                      <Text style={{ marginTop: 12 }}>Chọn phương thức thanh toán:</Text>
+                      <TouchableOpacity
+                        style={styles.paymentButton}
+                        onPress={() => setPaymentMethod("vnpay")}
+                      >
+                        <Text style={styles.paymentButtonText}>VNPay</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.paymentButton}
+                        onPress={() => setPaymentMethod("momo")}
+                      >
+                        <Text style={styles.paymentButtonText}>MoMo</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {step === 3 && selectedPlan && paymentMethod && (
+                    <View style={styles.stepCard}>
+                      <Text style={styles.sectionTitle}>✅ Bước 3/3: Xác nhận Thanh toán</Text>
+                      <Text style={styles.subTitle}>Thông tin người dùng</Text>
+                      <Text>Họ tên: {user.userName || user.email}</Text>
+                      <Text>Email: {user.email}</Text>
+                      <Text>Số điện thoại: {user.phone || "Không có dữ liệu"}</Text>
+                      <Text style={styles.subTitle}>Thông tin gói thành viên</Text>
+                      <Text>Gói: {selectedPlan.name}</Text>
+                      <Text>Level: {selectedPlan.level}</Text>
+                      <Text>Giá: {selectedPlan.price.toLocaleString()} VNĐ</Text>
+                      <Text>Thời gian: {selectedPlan.duration} ngày</Text>
+                      {selectedPlan.features.map((f, i) => (
+                        <Text key={i}>✔ {f}</Text>
+                      ))}
+                      <Text style={styles.subTitle}>Phương thức thanh toán</Text>
+                      <Text>Phương thức: {paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1)}</Text>
+                    </View>
+                  )}
+                  <View style={styles.navigationButtons}>
+                    {step > 1 && (
+                      <TouchableOpacity
+                        style={styles.navButton}
+                        onPress={() => setStep(step - 1)}
+                      >
+                        <Text style={styles.navButtonText}>Bước trước</Text>
+                      </TouchableOpacity>
+                    )}
+                    {step < 3 ? (
+                      <TouchableOpacity
+                        style={styles.navButton}
+                        onPress={() => setStep(step + 1)}
+                        disabled={step === 2 && !paymentMethod}
+                      >
+                        <Text style={styles.navButtonText}>Tiếp theo</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.navButton}
+                        onPress={() => {
+                          if (selectedPlan && paymentMethod) {
+                            handleCreatePayment(selectedPlan._id, paymentMethod);
+                            handlePaymentSuccess();
+                          }
+                        }}
+                      >
+                        <Text style={styles.navButtonText}>Thanh toán</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </>
+              )}
+            </LinearGradient>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -947,7 +1215,7 @@ const styles = StyleSheet.create({
   },
   settingsButton: {
     position: "absolute",
-    top: Platform.OS === "ios" ? 50 : 30,
+    top: 50,
     right: 20,
     zIndex: 10,
   },
@@ -968,7 +1236,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === "ios" ? 40 : 20,
+    paddingTop: 40,
   },
   profileSection: {
     alignItems: "center",
@@ -1030,22 +1298,14 @@ const styles = StyleSheet.create({
   userEmail: {
     fontSize: 16,
     color: "rgba(255, 255, 255, 0.9)",
-    marginBottom: 12,
+    marginBottom: 6,
     textAlign: "center",
   },
-  userBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.2)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 15,
-  },
-  badgeText: {
-    color: "#FFFFFF",
-    fontSize: 12,
+  userPlan: {
+    fontSize: 14,
+    color: "#FFD700",
     fontWeight: "600",
-    marginLeft: 4,
+    textAlign: "center",
   },
   statsSection: {
     flexDirection: "row",
@@ -1100,79 +1360,55 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: "#4CAF50",
   },
-  currentPlanSection: {
+  progressChartSection: {
     paddingHorizontal: 20,
     marginBottom: 30,
   },
-  currentPlanCard: {
+  planContainer: {
     borderRadius: 20,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 6,
-  },
-  currentPlanGradient: {
-    borderRadius: 20,
     padding: 20,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
   },
-  currentPlanHeader: {
-    flexDirection: "row",
+  planImageContainer: {
+    position: "relative",
+    width: "100%",
+    height: 150,
+    borderRadius: 12,
+    overflow: "hidden",
+    marginBottom: 16,
+  },
+  planImage: {
+    width: "100%",
+    height: "100%",
+  },
+  imageOverlay: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+  },
+  planInfo: {
     alignItems: "center",
     marginBottom: 16,
   },
-  planIconContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "rgba(76, 175, 80, 0.1)",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 16,
-  },
-  planInfo: {
-    flex: 1,
-  },
-  planTitle: {
-    fontSize: 18,
+  planTitleText: {
+    fontSize: 20,
     fontWeight: "bold",
     color: "#2E7D32",
-    marginBottom: 4,
-  },
-  planStatus: {
-    fontSize: 14,
-    color: "#4CAF50",
-    marginBottom: 2,
-  },
-  planDuration: {
-    fontSize: 12,
-    color: "#666",
-  },
-  planProgress: {
-    marginTop: 8,
-  },
-  progressLabel: {
-    fontSize: 14,
-    color: "#333",
+    textAlign: "center",
     marginBottom: 8,
-    fontWeight: "500",
   },
-  progressBar: {
-    height: 8,
-    backgroundColor: "#E0E0E0",
-    borderRadius: 4,
-    overflow: "hidden",
-    marginBottom: 4,
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: "#4CAF50",
-    borderRadius: 4,
-  },
-  progressText: {
-    fontSize: 12,
+  planSubText: {
+    fontSize: 14,
     color: "#666",
-    textAlign: "right",
+    textAlign: "center",
   },
   badgesSection: {
     marginBottom: 30,
@@ -1250,21 +1486,6 @@ const styles = StyleSheet.create({
     color: "#4CAF50",
     fontWeight: "600",
   },
-  actionButtons: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  cancelButton: {
-    marginLeft: 10,
-    padding: 5,
-    backgroundColor: "#FF5722",
-    borderRadius: 10,
-  },
-  cancelText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "600",
-  },
   followersSection: {
     marginBottom: 30,
   },
@@ -1282,6 +1503,8 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   followerCardGradient: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#E9ECEF",
     borderRadius: 16,
     padding: 16,
     alignItems: "center",
@@ -1579,4 +1802,90 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 16,
   },
-})
+  planOption: {
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E9ECEF",
+  },
+  planName: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#333",
+  },
+  planPrice: {
+    fontSize: 16,
+    color: "#666",
+    marginVertical: 4,
+  },
+  planDescription: {
+    fontSize: 14,
+    color: "#888",
+    marginBottom: 8,
+  },
+  planFeatures: {
+    marginTop: 8,
+  },
+  planFeature: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 4,
+  },
+  paymentOption: {
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E9ECEF",
+  },
+  paymentMethod: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#333",
+  },
+  stepCard: {
+    padding: 20,
+    marginBottom: 20,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  subTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#2E7D32",
+    marginTop: 10,
+    marginBottom: 5,
+  },
+  navigationButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  navButton: {
+    padding: 12,
+    backgroundColor: "#4CAF50",
+    borderRadius: 8,
+    alignItems: "center",
+    flex: 1,
+    marginHorizontal: 5,
+  },
+  navButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  paymentButton: {
+    padding: 10,
+    backgroundColor: "#E0F7FA",
+    borderRadius: 8,
+    marginVertical: 5,
+    alignItems: "center",
+  },
+  paymentButtonText: {
+    fontSize: 16,
+    color: "#00695C",
+  },
+});
