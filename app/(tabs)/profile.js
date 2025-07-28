@@ -23,15 +23,13 @@ import {
 import {
   awardBadge,
   cancelQuitPlan,
-  createPaymentUrl,
   getCurrentQuitPlan,
   getFollowers,
   getFollowing,
   getMembership,
-  getPackages,
   getProfile,
   getQuitPlanBadges,
-  updateProfile,
+  updateProfile
 } from "../services/api";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -71,12 +69,6 @@ export default function ProfileScreen() {
   const [scrollY] = useState(new Animated.Value(0));
   const [imageError, setImageError] = useState(false);
   const [membership, setMembership] = useState(null);
-  const [showPlanModal, setShowPlanModal] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState(null);
-  const [packages, setPackages] = useState([]);
-  const [step, setStep] = useState(1);
 
   const loadCurrentPlan = useCallback(async () => {
     try {
@@ -277,22 +269,6 @@ export default function ProfileScreen() {
     }
   }, []);
 
-  const loadPackages = useCallback(async () => {
-    try {
-      const token = await AsyncStorage.getItem("token");
-      const response = await getPackages({ headers: { Authorization: `Bearer ${token}` } });
-      if (response.status === 200 && response.data.success) {
-        setPackages(response.data.data.filter((pkg) => pkg.isActive));
-      } else {
-        console.warn("Packages data not successfully loaded:", response.data.message);
-        setPackages([]);
-      }
-    } catch (err) {
-      console.error("❌ Error loading packages:", err.response?.status, err.response?.data, err.message);
-      setPackages([]);
-    }
-  }, []);
-
   const handleUpdateProfile = async () => {
     try {
       setLoading(true);
@@ -368,64 +344,24 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleCreatePayment = async (planId, paymentMethod) => {
-    try {
-      const token = await AsyncStorage.getItem("token");
-      if (!token) throw new Error("Không có token xác thực");
-
-      const plan = packages.find((p) => p._id === planId);
-      if (!plan) throw new Error("Không tìm thấy gói thành viên");
-
-      const response = await createPaymentUrl({
-        memberShipPlanId: planId,
-        paymentMethod: paymentMethod.toLowerCase(),
-        amount: plan.price,
-      });
-
-      if (response.status === 200 && response.data.paymentUrl) {
-        router.push(response.data.paymentUrl);
-      } else {
-        Alert.alert("Lỗi", "Không thể tạo liên kết thanh toán");
-      }
-    } catch (err) {
-      console.error("Error creating payment:", err);
-      Alert.alert("Lỗi", "Không thể tạo liên kết thanh toán: " + (err.response?.data?.message || err.message));
-    }
-  };
-
-  const handlePaymentSuccess = async () => {
-    if (user?.id) {
-      const updatedMembership = await getMembership(user.id);
-      if (updatedMembership.status === 200 && updatedMembership.data.success) {
-        setMembership(updatedMembership.data.data.currentPlan || { name: "Chưa cập nhật" });
-      }
-      setShowPaymentModal(false);
-      setStep(1); // Reset về bước 1 sau khi thanh toán thành công
-      setSelectedPlan(null); // Reset selectedPlan
-      setPaymentMethod(null); // Reset paymentMethod
-    }
-  };
-
   useEffect(() => {
     loadUserProfile();
     loadCurrentPlan();
     loadMembership();
-    loadPackages();
-  }, [loadUserProfile, loadCurrentPlan, loadMembership, loadPackages]);
+  }, [loadUserProfile, loadCurrentPlan, loadMembership]);
 
   useFocusEffect(
     useCallback(() => {
       loadUserProfile();
       loadCurrentPlan();
       loadMembership();
-      loadPackages();
-    }, [loadUserProfile, loadCurrentPlan, loadMembership, loadPackages])
+    }, [loadUserProfile, loadCurrentPlan, loadMembership])
   );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([loadUserProfile(), loadCurrentPlan(), loadMembership(), loadPackages()]);
-  }, [loadUserProfile, loadCurrentPlan, loadMembership, loadPackages]);
+    await Promise.all([loadUserProfile(), loadCurrentPlan(), loadMembership()]);
+  }, [loadUserProfile, loadCurrentPlan, loadMembership]);
 
   const handleLogout = async () => {
     Alert.alert("Xác nhận đăng xuất", "Bạn có chắc muốn đăng xuất?", [
@@ -831,7 +767,10 @@ export default function ProfileScreen() {
               icon: "card-outline",
               text: "Đăng ký gói thành viên",
               color: "#4CAF50",
-              onPress: () => { setShowPlanModal(true); },
+              onPress: () => router.push({
+                pathname: "/membership",
+                params: { userId: user.id, userName: user.userName, email: user.email, phone: user.phone },
+              }),
             },
           ].map((action, index) => (
             <TouchableOpacity
@@ -945,179 +884,6 @@ export default function ProfileScreen() {
                   <Text style={styles.cancelButtonText}>Hủy</Text>
                 </TouchableOpacity>
               </View>
-            </LinearGradient>
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
-
-      <Modal visible={showPlanModal} animationType="slide" onRequestClose={() => setShowPlanModal(false)}>
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setShowPlanModal(false)} style={styles.closeButton}>
-              <Ionicons name="close" size={28} color="#666" />
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>Chọn gói thành viên</Text>
-          </View>
-          <ScrollView style={styles.modalContent}>
-            <LinearGradient colors={["#F8F9FA", "#FFFFFF"]} style={styles.modalGradient}>
-              {packages.map((plan) => (
-                <TouchableOpacity
-                  key={plan._id}
-                  style={styles.planOption}
-                  onPress={() => {
-                    setSelectedPlan(plan);
-                    setShowPlanModal(false);
-                    setShowPaymentModal(true);
-                    setStep(1); // Bắt đầu từ bước 1 sau khi chọn gói
-                  }}
-                >
-                  <Text style={styles.planName}>{plan.name}</Text>
-                  <Text style={styles.planPrice}>
-                    {plan.price > 0 ? `${plan.price.toLocaleString()} VNĐ/${plan.duration} ngày` : "Miễn phí"}
-                  </Text>
-                  <Text style={styles.planDescription}>{plan.description}</Text>
-                  <View style={styles.planFeatures}>
-                    {plan.features.map((feature, index) => (
-                      <Text key={index} style={styles.planFeature}>{feature}</Text>
-                    ))}
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </LinearGradient>
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
-
-      <Modal visible={showPaymentModal} animationType="slide" onRequestClose={() => {
-        setShowPaymentModal(false);
-        setStep(1); // Reset bước khi đóng modal
-        setPaymentMethod(null); // Reset paymentMethod khi đóng
-      }}>
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => {
-              setShowPaymentModal(false);
-              setStep(1);
-              setPaymentMethod(null);
-            }} style={styles.closeButton}>
-              <Ionicons name="close" size={28} color="#666" />
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>Xác nhận thanh toán</Text>
-          </View>
-          <ScrollView style={styles.modalContent}>
-            <LinearGradient colors={["#F8F9FA", "#FFFFFF"]} style={styles.modalGradient}>
-              {!selectedPlan ? (
-                <View style={styles.stepCard}>
-                  <Text style={styles.sectionTitle}>Chọn gói thành viên</Text>
-                  {packages.map((plan) => (
-                    <TouchableOpacity
-                      key={plan._id}
-                      style={styles.planOption}
-                      onPress={() => {
-                        setSelectedPlan(plan);
-                        setStep(1); // Bắt đầu từ bước 1 sau khi chọn gói
-                      }}
-                    >
-                      <Text style={styles.planName}>{plan.name}</Text>
-                      <Text style={styles.planPrice}>
-                        {plan.price > 0 ? `${plan.price.toLocaleString()} VNĐ/${plan.duration} ngày` : "Miễn phí"}
-                      </Text>
-                      <Text style={styles.planDescription}>{plan.description}</Text>
-                      <View style={styles.planFeatures}>
-                        {plan.features.map((feature, index) => (
-                          <Text key={index} style={styles.planFeature}>{feature}</Text>
-                        ))}
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              ) : (
-                <>
-                  {step === 1 && (
-                    <View style={styles.stepCard}>
-                      <Text style={styles.sectionTitle}>✅ Bước 1/3: Thông tin người dùng</Text>
-                      <Text>Họ tên: {user.userName || user.email}</Text>
-                      <Text>Email: {user.email}</Text>
-                      <Text>Số điện thoại: {user.phone || "Không có dữ liệu"}</Text>
-                    </View>
-                  )}
-                  {step === 2 && selectedPlan && (
-                    <View style={styles.stepCard}>
-                      <Text style={styles.sectionTitle}>✅ Bước 2/3: Thông tin gói & Phương thức thanh toán</Text>
-                      <Text>Gói thành viên: {selectedPlan.name}</Text>
-                      <Text>Giá: {selectedPlan.price.toLocaleString()} VNĐ</Text>
-                      <Text>Thời gian: {selectedPlan.duration} ngày</Text>
-                      <Text>Các tính năng:</Text>
-                      {selectedPlan.features.map((f, i) => (
-                        <Text key={i}>✔ {f}</Text>
-                      ))}
-                      <Text style={{ marginTop: 12 }}>Chọn phương thức thanh toán:</Text>
-                      <TouchableOpacity
-                        style={styles.paymentButton}
-                        onPress={() => setPaymentMethod("vnpay")}
-                      >
-                        <Text style={styles.paymentButtonText}>VNPay</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.paymentButton}
-                        onPress={() => setPaymentMethod("momo")}
-                      >
-                        <Text style={styles.paymentButtonText}>MoMo</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                  {step === 3 && selectedPlan && paymentMethod && (
-                    <View style={styles.stepCard}>
-                      <Text style={styles.sectionTitle}>✅ Bước 3/3: Xác nhận Thanh toán</Text>
-                      <Text style={styles.subTitle}>Thông tin người dùng</Text>
-                      <Text>Họ tên: {user.userName || user.email}</Text>
-                      <Text>Email: {user.email}</Text>
-                      <Text>Số điện thoại: {user.phone || "Không có dữ liệu"}</Text>
-                      <Text style={styles.subTitle}>Thông tin gói thành viên</Text>
-                      <Text>Gói: {selectedPlan.name}</Text>
-                      <Text>Level: {selectedPlan.level}</Text>
-                      <Text>Giá: {selectedPlan.price.toLocaleString()} VNĐ</Text>
-                      <Text>Thời gian: {selectedPlan.duration} ngày</Text>
-                      {selectedPlan.features.map((f, i) => (
-                        <Text key={i}>✔ {f}</Text>
-                      ))}
-                      <Text style={styles.subTitle}>Phương thức thanh toán</Text>
-                      <Text>Phương thức: {paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1)}</Text>
-                    </View>
-                  )}
-                  <View style={styles.navigationButtons}>
-                    {step > 1 && (
-                      <TouchableOpacity
-                        style={styles.navButton}
-                        onPress={() => setStep(step - 1)}
-                      >
-                        <Text style={styles.navButtonText}>Bước trước</Text>
-                      </TouchableOpacity>
-                    )}
-                    {step < 3 ? (
-                      <TouchableOpacity
-                        style={styles.navButton}
-                        onPress={() => setStep(step + 1)}
-                        disabled={step === 2 && !paymentMethod}
-                      >
-                        <Text style={styles.navButtonText}>Tiếp theo</Text>
-                      </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.navButton}
-                        onPress={() => {
-                          if (selectedPlan && paymentMethod) {
-                            handleCreatePayment(selectedPlan._id, paymentMethod);
-                            handlePaymentSuccess();
-                          }
-                        }}
-                      >
-                        <Text style={styles.navButtonText}>Thanh toán</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </>
-              )}
             </LinearGradient>
           </ScrollView>
         </SafeAreaView>
@@ -1801,91 +1567,5 @@ const styles = StyleSheet.create({
     color: "#666",
     fontWeight: "600",
     fontSize: 16,
-  },
-  planOption: {
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E9ECEF",
-  },
-  planName: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#333",
-  },
-  planPrice: {
-    fontSize: 16,
-    color: "#666",
-    marginVertical: 4,
-  },
-  planDescription: {
-    fontSize: 14,
-    color: "#888",
-    marginBottom: 8,
-  },
-  planFeatures: {
-    marginTop: 8,
-  },
-  planFeature: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 4,
-  },
-  paymentOption: {
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E9ECEF",
-  },
-  paymentMethod: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#333",
-  },
-  stepCard: {
-    padding: 20,
-    marginBottom: 20,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  subTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#2E7D32",
-    marginTop: 10,
-    marginBottom: 5,
-  },
-  navigationButtons: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-  },
-  navButton: {
-    padding: 12,
-    backgroundColor: "#4CAF50",
-    borderRadius: 8,
-    alignItems: "center",
-    flex: 1,
-    marginHorizontal: 5,
-  },
-  navButtonText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-    fontSize: 16,
-  },
-  paymentButton: {
-    padding: 10,
-    backgroundColor: "#E0F7FA",
-    borderRadius: 8,
-    marginVertical: 5,
-    alignItems: "center",
-  },
-  paymentButtonText: {
-    fontSize: 16,
-    color: "#00695C",
   },
 });

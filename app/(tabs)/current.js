@@ -171,7 +171,33 @@ export default function CurrentPlanScreen() {
     loadCurrentPlan();
   }, []);
 
-  const handleAddProgress = (stage) => {
+  const getStageProgress = (stage) => {
+    const stageProgressData = progress.filter((p) => p.stageId === stage._id);
+    const totalDays = stage.duration || 0;
+    const completedDays = stageProgressData.length;
+    return {
+      completed: completedDays,
+      total: totalDays,
+      percentage: totalDays > 0 ? (completedDays / totalDays) * 100 : 0,
+    };
+  };
+
+  // Check if the previous stage is completed
+  const canRecordProgress = (stage, index) => {
+    if (index === 0) return true; // First stage can always be recorded
+    const previousStage = stages[index - 1];
+    const previousProgress = getStageProgress(previousStage);
+    return previousProgress.percentage >= 100; // Previous stage must be 100% complete
+  };
+
+  const handleAddProgress = (stage, index) => {
+    if (!canRecordProgress(stage, index)) {
+      Alert.alert(
+        "Không thể ghi nhận",
+        "Vui lòng hoàn thành giai đoạn trước để ghi nhận tiến độ cho giai đoạn này."
+      );
+      return;
+    }
     setSelectedStage(stage);
     setCigarettesSmoked("");
     setHealthStatus("");
@@ -222,17 +248,6 @@ export default function CurrentPlanScreen() {
   const getTodayProgress = (stageId) => {
     const today = new Date().toDateString();
     return progress.find((p) => p.stageId === stageId && new Date(p.date).toDateString() === today);
-  };
-
-  const getStageProgress = (stage) => {
-    const stageProgressData = progress.filter((p) => p.stageId === stage._id);
-    const totalDays = stage.duration || 0;
-    const completedDays = stageProgressData.length;
-    return {
-      completed: completedDays,
-      total: totalDays,
-      percentage: totalDays > 0 ? (completedDays / totalDays) * 100 : 0,
-    };
   };
 
   const handleCancelPlan = () => {
@@ -666,6 +681,7 @@ export default function CurrentPlanScreen() {
             const stageProgressData = getStageProgress(stage);
             const todayProgress = getTodayProgress(stage._id);
             const isCompleted = stage.completed || stageProgressData.percentage >= 100;
+            const canRecord = canRecordProgress(stage, index);
 
             return (
               <View key={stage._id} style={styles.stageCard}>
@@ -730,8 +746,9 @@ export default function CurrentPlanScreen() {
                     ) : (
                       !isCompleted && (
                         <TouchableOpacity
-                          style={styles.addProgressButton}
-                          onPress={() => handleAddProgress(stage)}
+                          style={[styles.addProgressButton, !canRecord && { opacity: 0.5 }]}
+                          onPress={() => handleAddProgress(stage, index)}
+                          disabled={!canRecord}
                         >
                           <LinearGradient
                             colors={[COLORS.primary + "15", COLORS.accent + "15"]}
