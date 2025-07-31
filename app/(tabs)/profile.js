@@ -27,8 +27,8 @@ import {
   getFollowers,
   getFollowing,
   getMembership,
+  getMyBadges,
   getProfile,
-  getQuitPlanBadges,
   updateProfile
 } from "../services/api";
 
@@ -72,6 +72,7 @@ export default function ProfileScreen() {
 
   const loadCurrentPlan = useCallback(async () => {
     try {
+      setLoading(true);
       console.log("🔍 Loading current quit plan...");
       const response = await getCurrentQuitPlan({ headers: { "Cache-Control": "no-cache" } });
       console.log("API response for getCurrentQuitPlan:", JSON.stringify(response.data, null, 2));
@@ -87,32 +88,30 @@ export default function ProfileScreen() {
             duration: plan.duration || 0,
           });
           console.log("✅ Current plan loaded:", { title: plan.title || plan.name, image: plan.image || plan.imageUrl });
-          if (plan._id) {
-            try {
-              const badgesResponse = await getQuitPlanBadges(plan._id);
-              if (badgesResponse.status === 200 && badgesResponse.data) {
-                setBadges(badgesResponse.data.data || badgesResponse.data || []);
-              }
-            } catch (badgeError) {
-              console.log("No badges found for current plan:", badgeError);
-              setBadges([]);
-            }
-          }
         } else {
           console.log("Plan is completed, deleted, or not found, setting to null");
           setCurrentPlan(null);
-          setBadges([]);
         }
       } else {
         console.log("No current plan found, setting to null");
         setCurrentPlan(null);
+      }
+      // Load all user badges from /badges/my
+      const badgesResponse = await getMyBadges();
+      console.log("My badges response:", JSON.stringify(badgesResponse.data, null, 2));
+      if (badgesResponse.status === 200 && badgesResponse.data) {
+        setBadges(badgesResponse.data.data || badgesResponse.data.badges || []);
+      } else {
+        console.log("No badges found for user");
         setBadges([]);
       }
     } catch (error) {
-      console.error("Error loading current plan:", error.response?.status, error.message);
-      setError(error.response?.data?.message || "Không thể tải kế hoạch hiện tại");
+      console.error("Error loading current plan or badges:", error.response?.status, error.message);
+      setError(error.response?.data?.message || "Không thể tải kế hoạch hoặc huy hiệu");
       setCurrentPlan(null);
       setBadges([]);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -122,12 +121,10 @@ export default function ProfileScreen() {
       const followingList = await getStoredFollowing();
       setFollowingCount(followingList.length);
       console.log("🔢 Following count from AsyncStorage:", followingList.length);
-
       const [followersRes, followingRes] = await Promise.allSettled([
         getFollowers(userId, { page: 1, limit: 1000 }),
         getFollowing(userId, { page: 1, limit: 1000 }),
       ]);
-
       if (followersRes.status === "fulfilled") {
         const followersData = followersRes.value.data;
         console.log("📡 Raw followers response:", JSON.stringify(followersData, null, 2));
@@ -151,7 +148,6 @@ export default function ProfileScreen() {
       } else {
         console.error("❌ Followers request failed:", followersRes.reason);
       }
-
       if (followingRes.status === "fulfilled") {
         const followingData = followingRes.value.data;
         let count = 0;
@@ -184,21 +180,21 @@ export default function ProfileScreen() {
 
   const loadUserProfile = useCallback(async () => {
     try {
+      setLoading(true);
       setError(null);
       const token = await AsyncStorage.getItem("token");
+      console.log("Token:", token);
       if (!token) {
         Alert.alert("Thông báo", "Vui lòng đăng nhập để tiếp tục", [
           { text: "OK", onPress: () => router.replace("/(auth)/login") },
         ]);
         return;
       }
-
       console.log("🔍 Loading user profile...");
       const response = await getProfile();
       if (response.status === 200 && response.data) {
         const userData = response.data.data?.user || response.data.user || response.data || {};
         console.log("✅ Profile loaded:", JSON.stringify(userData, null, 2));
-
         setUser({
           id: userData.id || userData._id || null,
           userName: userData.userName || userData.name || "Chưa cập nhật",
@@ -212,7 +208,6 @@ export default function ProfileScreen() {
           isActive: userData.isActive || false,
           createdAt: userData.createdAt || null,
         });
-
         if (userData.id || userData._id) {
           await loadFollowCounts(userData.id || userData._id);
         }
@@ -238,25 +233,18 @@ export default function ProfileScreen() {
     try {
       const token = await AsyncStorage.getItem("token");
       const storedUser = await AsyncStorage.getItem("user");
-
       if (!token || !storedUser) return;
-
       const parsedUser = JSON.parse(storedUser);
       const userId = parsedUser._id || parsedUser.id;
-
       if (!userId) {
         console.warn("User ID not found");
         return;
       }
-
       console.log("🔍 Loading membership for user:", userId);
-
       const response = await getMembership(userId, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
       console.log("Membership API response:", JSON.stringify(response.data, null, 2));
-
       if (response.status === 200 && response.data.success) {
         setMembership(response.data.data.currentPlan || { name: "Chưa cập nhật" });
       } else {
@@ -274,14 +262,12 @@ export default function ProfileScreen() {
       setLoading(true);
       const token = await AsyncStorage.getItem("token");
       if (!token) throw new Error("Không có token xác thực");
-
       const updateData = {
         userName: editData.userName,
         bio: editData.bio,
         address: editData.address,
         phone: editData.phone,
       };
-
       console.log("🔄 Updating profile with data:", updateData);
       const response = await updateProfile(updateData);
       if (response.status === 200) {
@@ -303,19 +289,17 @@ export default function ProfileScreen() {
       Alert.alert("Lỗi", "Không tìm thấy kế hoạch hiện tại");
       return;
     }
-
     try {
       const badgeData = {
         name: badgeName,
         description: badgeDescription,
       };
-
       const response = await awardBadge(currentPlan._id, badgeData);
       if (response.status === 200 || response.status === 201) {
         Alert.alert("🎉 Chúc mừng!", `Bạn đã nhận được huy hiệu: ${badgeName}`);
-        const badgesResponse = await getQuitPlanBadges(currentPlan._id);
+        const badgesResponse = await getMyBadges(); // Cập nhật từ /badges/my
         if (badgesResponse.status === 200 && badgesResponse.data) {
-          setBadges(badgesResponse.data.data || badgesResponse.data || []);
+          setBadges(badgesResponse.data.data || badgesResponse.data.badges || []);
         }
       }
     } catch (error) {
@@ -501,7 +485,6 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#1B5E20" />
-
       <Animated.ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
@@ -533,13 +516,11 @@ export default function ProfileScreen() {
             end={{ x: 1, y: 1 }}
           >
             <View style={styles.headerOverlay} />
-
             <TouchableOpacity style={styles.settingsButton} onPress={handleEditProfile} activeOpacity={0.8}>
               <View style={styles.settingsButtonBackground}>
                 <Ionicons name="settings-outline" size={24} color="#2E7D32" />
               </View>
             </TouchableOpacity>
-
             <View style={styles.header}>
               <View style={styles.profileSection}>
                 <View style={styles.profileImageContainer}>
@@ -563,6 +544,7 @@ export default function ProfileScreen() {
           </LinearGradient>
         </Animated.View>
 
+        {/* Stats Section - Removed smoking-free days card */}
         <View style={styles.statsSection}>
           <TouchableOpacity
             style={styles.statCard}
@@ -578,7 +560,6 @@ export default function ProfileScreen() {
               <View style={styles.statIndicator} />
             </LinearGradient>
           </TouchableOpacity>
-
           <TouchableOpacity
             style={styles.statCard}
             onPress={() => handleViewFollowList("followers")}
@@ -593,17 +574,6 @@ export default function ProfileScreen() {
               <View style={styles.statIndicator} />
             </LinearGradient>
           </TouchableOpacity>
-
-          <View style={styles.statCard}>
-            <LinearGradient colors={["#E8F5E8", "#FFFFFF"]} style={styles.statGradient}>
-              <View style={styles.statIconContainer}>
-                <Ionicons name="calendar" size={28} color="#4CAF50" />
-              </View>
-              <Text style={styles.statNumber}>{user.smokingFreeDays}</Text>
-              <Text style={styles.statLabel}>Ngày không hút thuốc</Text>
-              <View style={styles.statIndicator} />
-            </LinearGradient>
-          </View>
         </View>
 
         {currentPlan && (
@@ -646,16 +616,11 @@ export default function ProfileScreen() {
           </View>
         )}
 
+        {/* Badges Section - Removed "Thêm huy hiệu" button */}
         <View style={styles.badgesSection}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>🏅 Huy hiệu</Text>
-            <TouchableOpacity
-              onPress={() => handleAwardBadge("Huy hiệu thử nghiệm", "Huy hiệu cho mục đích kiểm tra")}
-            >
-              <Text style={styles.viewAllText}>Thêm huy hiệu</Text>
-            </TouchableOpacity>
           </View>
-
           {badges.length > 0 ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.badgesScroll}>
               {badges.map((badge, index) => (
@@ -668,6 +633,11 @@ export default function ProfileScreen() {
                     <Text style={styles.badgeDescription} numberOfLines={2}>
                       {badge.description}
                     </Text>
+                    {badge.awardedAt && (
+                      <Text style={styles.badgeDate}>
+                        Ngày nhận: {formatDate(badge.awardedAt)}
+                      </Text>
+                    )}
                   </LinearGradient>
                 </View>
               ))}
@@ -688,7 +658,6 @@ export default function ProfileScreen() {
               <Text style={styles.viewAllText}>Xem tất cả</Text>
             </TouchableOpacity>
           </View>
-
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.followersScroll}>
             {followersList.slice(0, 10).map((follower, index) => (
               <TouchableOpacity
@@ -751,12 +720,10 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        {/* Action Section - Removed "Cài đặt", "Hỗ trợ", "Giới thiệu" */}
         <View style={styles.actionSection}>
           <Text style={styles.sectionTitle}>⚙️ Hành động nhanh</Text>
           {[
-            { icon: "settings-outline", text: "Cài đặt", color: "#2196F3" },
-            { icon: "help-circle-outline", text: "Hỗ trợ", color: "#9C27B0" },
-            { icon: "information-circle-outline", text: "Giới thiệu", color: "#FF9800" },
             {
               icon: "cash-outline",
               text: "Lịch sử thanh toán",
@@ -803,7 +770,6 @@ export default function ProfileScreen() {
       <Modal visible={editing} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleCloseEdit}>
         <SafeAreaView style={styles.modalContainer}>
           <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={handleCloseEdit} style={styles.closeButton}>
               <Ionicons name="close" size={28} color="#666" />
@@ -813,7 +779,6 @@ export default function ProfileScreen() {
               <Text style={styles.saveHeaderText}>Lưu</Text>
             </TouchableOpacity>
           </View>
-
           <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
             <LinearGradient colors={["#F8F9FA", "#FFFFFF"]} style={styles.modalGradient}>
               <View style={styles.editImageSection}>
@@ -825,7 +790,6 @@ export default function ProfileScreen() {
                 </View>
                 <Text style={styles.changeImageText}>Chạm để thay đổi ảnh hồ sơ</Text>
               </View>
-
               <View style={styles.formSection}>
                 {[
                   { key: "userName", placeholder: "Nhập tên người dùng", icon: "person-outline", label: "Tên người dùng" },
@@ -864,14 +828,12 @@ export default function ProfileScreen() {
                   </View>
                 ))}
               </View>
-
               <View style={styles.infoNote}>
                 <Ionicons name="information-circle-outline" size={20} color="#4CAF50" />
                 <Text style={styles.infoNoteText}>
                   Hiện tại chỉ có thể cập nhật tên người dùng, tiểu sử, địa chỉ và số điện thoại.
                 </Text>
               </View>
-
               <View style={styles.modalActions}>
                 <TouchableOpacity style={styles.saveButton} onPress={handleUpdateProfile}>
                   <LinearGradient colors={["#4CAF50", "#66BB6A"]} style={styles.saveGradient}>
@@ -879,7 +841,6 @@ export default function ProfileScreen() {
                     <Text style={styles.saveButtonText}>Lưu thay đổi</Text>
                   </LinearGradient>
                 </TouchableOpacity>
-
                 <TouchableOpacity style={styles.cancelButton} onPress={handleCloseEdit}>
                   <Text style={styles.cancelButtonText}>Hủy</Text>
                 </TouchableOpacity>
@@ -1218,6 +1179,12 @@ const styles = StyleSheet.create({
     color: "#666",
     textAlign: "center",
     lineHeight: 16,
+  },
+  badgeDate: {
+    fontSize: 10,
+    color: "#888",
+    textAlign: "center",
+    marginTop: 4,
   },
   noBadgesContainer: {
     alignItems: "center",

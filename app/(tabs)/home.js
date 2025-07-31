@@ -1,19 +1,22 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Dimensions,
-    Image,
-    RefreshControl,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Dimensions,
+  Image,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import banner1 from "../../assets/images/banner1.jpg";
+import banner2 from "../../assets/images/banner2.jpg";
+import banner3 from "../../assets/images/banner3.jpg";
 import { fetchBlogs, getProfile } from "../services/api";
 
 const { width: screenWidth } = Dimensions.get("window");
@@ -27,17 +30,76 @@ const HomeScreen = () => {
   const [user, setUser] = useState(null);
   const [loadingUser, setLoadingUser] = useState(true);
   const [error, setError] = useState(null);
+  
+  // Banner carousel states
+  const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
+  const bannerScrollRef = useRef(null);
+  const bannerIntervalRef = useRef(null);
+
+  // Banner data - bạn có thể thay đổi links này sau
+  const bannerData = [
+    {
+      id: 1,
+      image: banner1,
+      isLocal: true,
+      title: "Bỏ thuốc lá thành công",
+      subtitle: "Hành trình khỏe mạnh bắt đầu từ hôm nay"
+    },
+    {
+      id: 2,
+      image: banner2,
+      isLocal: true,
+      title: "Tư vấn chuyên gia",
+      subtitle: "Nhận hỗ trợ từ các chuyên gia y tế"
+    },
+    {
+      id: 3,
+      image: banner3,
+      isLocal: true,
+      title: "Cộng đồng hỗ trợ",
+      subtitle: "Kết nối với những người cùng chí hướng"
+    }
+  ];
 
   // Function to get dynamic greeting based on time
   const getGreeting = () => {
-    const hour = new Date().getHours(); // Get current hour in local timezone (Asia/Ho_Chi_Minh)
+    const hour = new Date().getHours();
     if (hour >= 5 && hour < 12) {
-      return { text: "Chào buổi sáng", emoji: "🌞" }; // Morning: 5 AM - 11:59 AM
+      return { text: "Chào buổi sáng", emoji: "🌞" };
     } else if (hour >= 12 && hour < 18) {
-      return { text: "Chào buổi chiều", emoji: "☀️" }; // Afternoon: 12 PM - 5:59 PM
+      return { text: "Chào buổi chiều", emoji: "☀️" };
     } else {
-      return { text: "Chào buổi tối", emoji: "🌙" }; // Evening: 6 PM - 4:59 AM
+      return { text: "Chào buổi tối", emoji: "🌙" };
     }
+  };
+
+  // Auto scroll banner
+  useEffect(() => {
+    bannerIntervalRef.current = setInterval(() => {
+      setCurrentBannerIndex((prevIndex) => {
+        const nextIndex = (prevIndex + 1) % bannerData.length;
+        if (bannerScrollRef.current) {
+          bannerScrollRef.current.scrollTo({
+            x: nextIndex * (screenWidth - 40),
+            animated: true,
+          });
+        }
+        return nextIndex;
+      });
+    }, 3000); // Change every 3 seconds
+
+    return () => {
+      if (bannerIntervalRef.current) {
+        clearInterval(bannerIntervalRef.current);
+      }
+    };
+  }, []);
+
+  // Handle manual banner scroll
+  const handleBannerScroll = (event) => {
+    const scrollPosition = event.nativeEvent.contentOffset.x;
+    const index = Math.round(scrollPosition / (screenWidth - 40));
+    setCurrentBannerIndex(index);
   };
 
   // Check login status and load user profile
@@ -130,15 +192,14 @@ const HomeScreen = () => {
     });
   };
 
- const services = [
-  { title: "Bài viết", icon: "📝", screen: "/blogs", color: "#FFB74D" },
-  { title: "Lịch sử thanh toán", icon: "💳", screen: "/paymentHistory", color: "#4FC3F7" },
-  { title: "Đăng ký thành viên", icon: "🧑‍💼", screen: "/membership", color: "#FFB74D" },
-  { title: "Kế hoạch của tôi", icon: "🗓️", screen: "/current", color: "#FFB74D" },
-  { title: "Kế hoạch", icon: "📈", screen: "/plans", color: "#FFB74D" },
-  { title: "Profile", icon: "👤", screen: "/profile", color: "#FFB74D" },
-];
-
+  const services = [
+    { title: "Bài viết", icon: "📝", screen: "/blogs", color: "#FFB74D" },
+    { title: "Lịch sử thanh toán", icon: "💳", screen: "/paymentHistory", color: "#4FC3F7" },
+    { title: "Đăng ký thành viên", icon: "🧑‍💼", screen: "/membership", color: "#FFB74D" },
+    { title: "Kế hoạch của tôi", icon: "🗓️", screen: "/current", color: "#FFB74D" },
+    { title: "Kế hoạch", icon: "📈", screen: "/plans", color: "#FFB74D" },
+    { title: "Profile", icon: "👤", screen: "/profile", color: "#FFB74D" },
+  ];
 
   return (
     <ScrollView
@@ -148,7 +209,7 @@ const HomeScreen = () => {
       }
     >
       <StatusBar barStyle="dark-content" backgroundColor="#F5F7FA" />
-
+      
       {/* Header */}
       <LinearGradient colors={["#1B5E20", "#2E7D32"]} style={styles.header}>
         <View style={styles.headerContent}>
@@ -168,7 +229,6 @@ const HomeScreen = () => {
           colors={["rgba(0,0,0,0.3)", "rgba(0,0,0,0.1)", "rgba(0,0,0,0.4)"]}
           style={styles.imageOverlay}
         />
-
         {/* Greeting Section */}
         <View style={styles.greetingSection}>
           {loadingUser ? (
@@ -184,7 +244,6 @@ const HomeScreen = () => {
             </>
           )}
         </View>
-
         {/* Login Button - Only show when not logged in */}
         {!isLoggedIn && (
           <View style={styles.loginButtonContainer}>
@@ -203,6 +262,60 @@ const HomeScreen = () => {
             </TouchableOpacity>
           </View>
         )}
+      </View>
+
+      {/* Banner Carousel Section */}
+      <View style={styles.bannerSection}>
+        <ScrollView
+          ref={bannerScrollRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={handleBannerScroll}
+          style={styles.bannerScrollView}
+        >
+          {bannerData.map((banner, index) => (
+  <TouchableOpacity
+    key={banner.id}
+    style={styles.bannerCard}
+    activeOpacity={0.8}
+    onPress={() => {
+      console.log("Banner pressed:", banner.title);
+    }}
+  >
+    <Image
+      source={banner.isLocal ? banner.image : { uri: banner.image }}
+      style={styles.bannerImage}
+      resizeMode="cover"
+    />
+    <LinearGradient
+      colors={["rgba(0,0,0,0.4)", "rgba(0,0,0,0.2)"]}
+      style={styles.bannerOverlay}
+    />
+    <View style={styles.bannerContent}>
+      <Text style={styles.bannerTitle}>{banner.title}</Text>
+      <Text style={styles.bannerSubtitle}>{banner.subtitle}</Text>
+    </View>
+  </TouchableOpacity>
+))}
+
+        </ScrollView>
+        
+        {/* Banner Indicators */}
+        <View style={styles.bannerIndicators}>
+          {bannerData.map((_, index) => (
+            <View
+              key={index}
+              style={[
+                styles.indicator,
+                {
+                  backgroundColor: currentBannerIndex === index ? "#4CAF50" : "rgba(255,255,255,0.5)",
+                  width: currentBannerIndex === index ? 20 : 8,
+                }
+              ]}
+            />
+          ))}
+        </View>
       </View>
 
       {/* Services Section */}
@@ -368,6 +481,63 @@ const styles = StyleSheet.create({
   },
   faceIdIcon: {
     fontSize: 20,
+  },
+  // Banner Carousel Styles
+  bannerSection: {
+    marginHorizontal: 20,
+    marginBottom: 30,
+    position: "relative",
+  },
+  bannerScrollView: {
+    borderRadius: 15,
+  },
+  bannerCard: {
+    width: screenWidth - 40,
+    height: 150,
+    borderRadius: 15,
+    overflow: "hidden",
+    position: "relative",
+  },
+  bannerImage: {
+    width: "100%",
+    height: "100%",
+    position: "absolute",
+  },
+  bannerOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  bannerContent: {
+    position: "absolute",
+    bottom: 20,
+    left: 20,
+    right: 20,
+  },
+  bannerTitle: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 5,
+  },
+  bannerSubtitle: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  bannerIndicators: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 15,
+  },
+  indicator: {
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 4,
+    transition: "all 0.3s ease",
   },
   servicesSection: {
     paddingHorizontal: 20,

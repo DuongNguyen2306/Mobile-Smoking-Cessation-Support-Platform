@@ -384,6 +384,13 @@ export const getQuitPlanBadges = (quitPlanId) => {
   return API.get(`/plans/quitplans/${quitPlanId}/badges`);
 };
 
+// ===== MY BADGES ENDPOINT =====
+export const getMyBadges = () => {
+  console.log("📡 Getting user's badges from /badges/my");
+  return API.get("/badges/my");
+};
+
+
 // ===== CUSTOM QUIT PLAN ENDPOINTS =====
 export const createCustomQuitPlanRequest = (data) => {
   console.log("📡 Creating custom quit plan request");
