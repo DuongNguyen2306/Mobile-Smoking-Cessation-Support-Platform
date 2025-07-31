@@ -129,6 +129,8 @@ export default function TabLayout() {
       <Tabs.Screen name="plansHistory" options={{ href: null }} />
       <Tabs.Screen name="paymentHistory" options={{ href: null }} />
       <Tabs.Screen name="membership" options={{ href: null }} />
+      <Tabs.Screen name="failure" options={{ href: null }} />
+      <Tabs.Screen name="success" options={{ href: null }} />
     </Tabs>
   );
 }

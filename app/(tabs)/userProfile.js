@@ -1,3 +1,4 @@
+
 import { Ionicons } from "@expo/vector-icons"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { LinearGradient } from "expo-linear-gradient"
@@ -19,7 +20,6 @@ import {
 } from "react-native"
 import API, { getFollowers, getFollowing, getUserProfile } from "../services/api"
 
-
 const { width } = Dimensions.get("window")
 
 // Color constants
@@ -39,8 +39,8 @@ const COLORS = {
   instagramGradient: ["#833AB4", "#C13584", "#E1306C", "#FD1D1D"],
   success: "#4CAF50",
   warning: "#FF9800",
+  unfollowGradient: ["#B0BEC5", "#78909C"],
 }
-
 
 const getStoredFollowing = async () => {
   try {
@@ -52,7 +52,6 @@ const getStoredFollowing = async () => {
   }
 }
 
-// Hàm lưu danh sách following vào AsyncStorage
 const storeFollowing = async (followingList) => {
   try {
     await AsyncStorage.setItem("following", JSON.stringify(followingList))
@@ -83,13 +82,11 @@ export default function UserProfileScreen() {
   const [scaleAnim] = useState(new Animated.Value(0.9))
   const [followAnimation] = useState(new Animated.Value(1))
 
-  // Hiển thị thông báo tạm thời
   const showToast = (message) => {
     setToastMessage(message)
     setTimeout(() => setToastMessage(null), 3000)
   }
 
-  // Hiệu ứng hoạt hình khi nhấn follow
   const triggerFollowAnimation = () => {
     Animated.sequence([
       Animated.timing(followAnimation, {
@@ -105,7 +102,6 @@ export default function UserProfileScreen() {
     ]).start()
   }
 
-  // Animation khi load trang
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -122,7 +118,6 @@ export default function UserProfileScreen() {
     ]).start()
   }, [])
 
-  // Thêm function để refresh follow status:
   const refreshFollowStatus = useCallback(async () => {
     try {
       const followingList = await getStoredFollowing()
@@ -148,7 +143,6 @@ export default function UserProfileScreen() {
         let count = 0
         let followers = []
 
-        // Check for the exact structure: data.followers
         if (followersData?.data?.followers && Array.isArray(followersData.data.followers)) {
           followers = followersData.data.followers
           count = followers.length
@@ -199,7 +193,6 @@ export default function UserProfileScreen() {
         return
       }
 
-      // Get current user ID
       const userData = await AsyncStorage.getItem("user")
       if (userData) {
         const parsedUser = JSON.parse(userData)
@@ -225,10 +218,7 @@ export default function UserProfileScreen() {
         console.log("✅ Loaded user data:", targetUserData)
         setUser(targetUserData)
 
-        // Load follow counts and followers list
         await loadFollowCounts(userId)
-
-        // Check if current user is following this user (from local storage)
         await refreshFollowStatus()
       } else {
         throw new Error("Invalid response format")
@@ -257,7 +247,6 @@ export default function UserProfileScreen() {
     }
   }, [userId, loadUserProfile])
 
-  // Thêm sau useEffect hiện tại
   useFocusEffect(
     useCallback(() => {
       console.log("👀 Profile screen focused, refreshing follow status...")
@@ -271,36 +260,35 @@ export default function UserProfileScreen() {
     setRefreshing(false)
   }, [loadUserProfile])
 
-  
   const handleFollow = async () => {
-  const targetUserId = userId; 
-  if (!targetUserId) return;
+    const targetUserId = userId
+    if (!targetUserId) return
 
-  try {
-    let followingList = await getStoredFollowing();
-    const wasFollowing = isFollowing;
+    setFollowLoading(true)
+    try {
+      let followingList = await getStoredFollowing()
+      const wasFollowing = isFollowing
 
-    if (wasFollowing) {
-      followingList = followingList.filter((id) => id !== targetUserId);
-      setIsFollowing(false);
-      await API.put(`/users/unfollow/${targetUserId}`);
-    } else {
-      followingList.push(targetUserId);
-      setIsFollowing(true);
-      await API.put(`/users/follow/${targetUserId}`);
+      if (wasFollowing) {
+        followingList = followingList.filter((id) => id !== targetUserId)
+        setIsFollowing(false)
+        await API.put(`/users/unfollow/${targetUserId}`)
+      } else {
+        followingList.push(targetUserId)
+        setIsFollowing(true)
+        await API.put(`/users/follow/${targetUserId}`)
+      }
+
+      await storeFollowing(followingList)
+      showToast(wasFollowing ? "Đã bỏ theo dõi 👋" : "Đã theo dõi 🎉")
+      triggerFollowAnimation()
+      await loadFollowCounts(targetUserId)
+    } catch (error) {
+      console.error("❌ Error toggling follow:", error.message)
+      showToast("Có lỗi xảy ra khi cập nhật theo dõi.")
+    } finally {
+      setFollowLoading(false)
     }
-
-    await storeFollowing(followingList);
-    showToast(wasFollowing ? "Đã bỏ theo dõi 👋" : "Đã theo dõi 🎉");
-
-    
-    await loadFollowCounts(targetUserId);
-  } catch (error) {
-    console.error("❌ Error toggling follow:", error.message);
-    showToast("Có lỗi xảy ra khi cập nhật theo dõi.");
-  }
-
-
   }
 
   const handleViewFollowList = (type) => {
@@ -374,7 +362,6 @@ export default function UserProfileScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Toast Message */}
       {toastMessage && (
         <Animated.View style={styles.toastContainer}>
           <LinearGradient colors={[COLORS.primary, COLORS.secondary]} style={styles.toastGradient}>
@@ -383,7 +370,6 @@ export default function UserProfileScreen() {
         </Animated.View>
       )}
 
-      {/* Header */}
       <LinearGradient colors={[COLORS.secondary, COLORS.primary]} style={styles.headerGradient}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
@@ -401,7 +387,6 @@ export default function UserProfileScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />}
       >
-        {/* Profile Header */}
         <Animated.View style={[styles.profileSection, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
           <LinearGradient
             colors={[COLORS.secondary, COLORS.primary, COLORS.accent]}
@@ -431,26 +416,21 @@ export default function UserProfileScreen() {
                 </View>
               )}
 
-              {/* Action Buttons */}
               {currentUserId !== userId && (
                 <View style={styles.actionButtons}>
                   <Animated.View style={{ transform: [{ scale: followAnimation }] }}>
                     <TouchableOpacity
-                      style={[
-                        styles.followButton,
-                        isFollowing && styles.unfollowButton,
-                        followLoading && styles.buttonDisabled,
-                      ]}
+                      style={[styles.followButton, followLoading && styles.buttonDisabled]}
                       onPress={handleFollow}
                       disabled={followLoading}
                     >
                       {followLoading ? (
                         <ActivityIndicator size="small" color={COLORS.white} />
                       ) : isFollowing ? (
-                        <>
+                        <LinearGradient colors={COLORS.unfollowGradient} style={styles.followGradient}>
                           <Ionicons name="checkmark" size={16} color={COLORS.white} />
                           <Text style={styles.followButtonText}>Đang theo dõi</Text>
-                        </>
+                        </LinearGradient>
                       ) : (
                         <LinearGradient colors={COLORS.instagramGradient} style={styles.followGradient}>
                           <Ionicons name="person-add" size={16} color={COLORS.white} />
@@ -470,7 +450,6 @@ export default function UserProfileScreen() {
           </LinearGradient>
         </Animated.View>
 
-        {/* Stats Section */}
         <View style={styles.statsSection}>
           <TouchableOpacity style={styles.statCard} onPress={() => handleViewFollowList("following")}>
             <LinearGradient colors={[COLORS.white, COLORS.lightBackground]} style={styles.statGradient}>
@@ -491,19 +470,8 @@ export default function UserProfileScreen() {
               <Text style={styles.statLabel}>Người theo dõi</Text>
             </LinearGradient>
           </TouchableOpacity>
-
-          <View style={styles.statCard}>
-            <LinearGradient colors={[COLORS.white, COLORS.lightBackground]} style={styles.statGradient}>
-              <View style={styles.statIcon}>
-                <Ionicons name="calendar" size={24} color={COLORS.warning} />
-              </View>
-              <Text style={styles.statNumber}>{user.smokingFreeDays || 0}</Text>
-              <Text style={styles.statLabel}>Ngày không hút</Text>
-            </LinearGradient>
-          </View>
         </View>
 
-        {/* Followers Section */}
         {followersList.length > 0 && (
           <View style={styles.followersSection}>
             <Text style={styles.sectionTitle}>
@@ -545,7 +513,6 @@ export default function UserProfileScreen() {
           </View>
         )}
 
-        {/* Info Section */}
         <View style={styles.infoSection}>
           <Text style={styles.sectionTitle}>
             <Ionicons name="information-circle" size={20} color={COLORS.primary} /> Thông tin cá nhân
@@ -602,7 +569,6 @@ export default function UserProfileScreen() {
           </View>
         </View>
 
-        {/* Bottom Spacing */}
         <View style={styles.bottomSpacing} />
       </ScrollView>
     </SafeAreaView>
@@ -799,11 +765,13 @@ const styles = StyleSheet.create({
   followButton: {
     borderRadius: 25,
     overflow: "hidden",
-    minWidth: 120,
+    minWidth: 140,
     height: 40,
-  },
-  unfollowButton: {
-    backgroundColor: COLORS.lightText,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   buttonDisabled: {
     opacity: 0.6,
@@ -814,12 +782,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 20,
     paddingVertical: 10,
+    borderRadius: 25,
   },
   followButtonText: {
-    fontSize: 14,
+    fontSize: 16,
     color: COLORS.white,
     fontWeight: "600",
-    marginLeft: 6,
+    marginLeft: 8,
   },
   messageButton: {
     flexDirection: "row",
@@ -828,23 +797,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 25,
-    minWidth: 120,
+    minWidth: 140,
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   messageButtonText: {
-    fontSize: 14,
+    fontSize: 16,
     color: COLORS.primary,
     fontWeight: "600",
-    marginLeft: 6,
+    marginLeft: 8,
   },
   statsSection: {
     flexDirection: "row",
     paddingHorizontal: 20,
     marginBottom: 24,
-    gap: 12,
+    gap: 16,
+    justifyContent: "center",
   },
   statCard: {
     flex: 1,
+    maxWidth: (width - 56) / 2, // Chia đều không gian cho 2 thẻ
     borderRadius: 20,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
@@ -965,7 +941,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(76, 175, 80, 0.1)",
+    borderBottomColor: "rgba(76, 75, 80, 0.1)",
   },
   infoIcon: {
     width: 50,

@@ -52,7 +52,6 @@ API.interceptors.response.use(
 // Test connection với endpoint có sẵn
 export const testConnection = async () => {
   console.log("🔍 Testing API connection...");
-
   const testEndpoints = [
     "/chat/users",
     "/users/profile/me",
@@ -68,19 +67,16 @@ export const testConnection = async () => {
       return true;
     } catch (error) {
       console.log(`❌ ${endpoint} failed:`, error.response?.status, error.message);
-
       if (error.response?.status === 401) {
         console.log("✅ Server is running (401 = auth issue, not connection issue)");
         return true;
       }
-
       if (error.response?.status && error.response.status < 500) {
         console.log("✅ Server is responding (HTTP error but connection OK)");
         return true;
       }
     }
   }
-
   console.log("❌ All connection tests failed");
   return false;
 };
@@ -106,6 +102,7 @@ export const fetchBlogs = () => API.get("/blogs");
 export const fetchBlogBySlug = (slug) => API.get(`/blogs/${slug}`);
 export const likeBlog = (blogId) => API.post(`/blogs/${blogId}/like`);
 export const addComment = (blogId, content) => API.post(`/blogs/${blogId}/comments`, { text: content });
+
 export const createBlog = (data) => {
   console.log("📡 Creating blog at /blogs");
   console.log("📤 Blog data:", data);
@@ -130,7 +127,6 @@ export const getBlogById = (blogId) => {
 
 export const getBlogByIdOrSlug = async (identifier) => {
   console.log(`📡 Getting blog by identifier: ${identifier}`);
-
   try {
     const response = await API.get(`/blogs/${identifier}`);
     console.log("✅ Found blog by ID:", response.data);
@@ -315,15 +311,22 @@ export const getCurrentQuitPlan = () => {
   return API.get("/plans/quitplans/current");
 };
 
-export const cancelQuitPlan = (reason) => {
-  console.log(`📡 Cancelling current quit plan`);
+export const cancelQuitPlan = (planId, reason) => {
+  console.log(`📡 Cancelling quit plan ${planId}`);
   console.log("📤 Cancellation reason:", reason);
-  return API.post("/plans/quitplans/cancel", { reason });
+  return API.post(`/plans/quitplans/cancel`, { reason });
 };
 
 export const completeQuitPlan = (planId) => {
   console.log(`📡 Completing quit plan ${planId}`);
   return API.patch(`/plans/quitplans/${planId}/complete`);
+};
+
+// ===== NEW ENDPOINT: MARK PLAN AS FAILED =====
+export const markPlanAsFailed = (planId, reason) => {
+  console.log(`📡 Marking plan ${planId} as failed at /plans/quitplans/${planId}/fail`);
+  console.log("📤 Failure reason:", reason);
+  return API.put(`/plans/quitplans/${planId}/fail`, { reason });
 };
 
 // ===== QUIT PLAN HISTORY ENDPOINTS =====
@@ -389,7 +392,6 @@ export const getMyBadges = () => {
   console.log("📡 Getting user's badges from /badges/my");
   return API.get("/badges/my");
 };
-
 
 // ===== CUSTOM QUIT PLAN ENDPOINTS =====
 export const createCustomQuitPlanRequest = (data) => {
@@ -461,6 +463,22 @@ export const registerMembership = (data) => {
   console.log("📡 Registering membership at /memberships/register");
   console.log("📤 Membership registration data:", data);
   return API.post("/memberships/register", data);
+};
+
+// ✅ FIXED: Plan completion endpoint using axios with proper auth
+export const getPlanCompletionDetails = async (planId) => {
+  console.log(`📡 Getting plan completion details for plan ${planId} from /plans/quitplans/${planId}/completion`);
+  try {
+    const response = await API.get(`/plans/quitplans/${planId}/completion`);
+    console.log("✅ Plan completion API success:", response.status, response.data);
+    return {
+      status: response.status,
+      data: response.data,
+    };
+  } catch (error) {
+    console.error("❌ Error fetching plan completion details:", error.response?.status, error.message);
+    throw error;
+  }
 };
 
 export default API;

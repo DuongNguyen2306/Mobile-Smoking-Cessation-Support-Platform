@@ -720,7 +720,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Action Section - Removed "Cài đặt", "Hỗ trợ", "Giới thiệu" */}
         <View style={styles.actionSection}>
           <Text style={styles.sectionTitle}>⚙️ Hành động nhanh</Text>
           {[
@@ -738,6 +737,12 @@ export default function ProfileScreen() {
                 pathname: "/membership",
                 params: { userId: user.id, userName: user.userName, email: user.email, phone: user.phone },
               }),
+            },
+            {
+              icon: "time-outline",
+              text: "Lịch sử kế hoạch",
+              color: "#2196F3",
+              onPress: () => router.push("/plansHistory"),
             },
           ].map((action, index) => (
             <TouchableOpacity
